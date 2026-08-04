@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>식사 신청 시스템</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#2563eb" />
+<link rel="icon" href="/icons/icon-192.png" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<header class="topbar hidden" id="topbar">
+  <div class="brand" data-i18n="appTitle" id="brandLabel">식사 신청 시스템</div>
+  <div class="right">
+    <span class="badge" id="userBadge"></span>
+    <select id="langSelect">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+    <button class="secondary" data-i18n="logout" id="logoutBtn">로그아웃</button>
+  </div>
+</header>
+
+<!-- 로그인 화면 -->
+<div id="loginView">
+  <div class="card login-card">
+    <h2 data-i18n="appTitle" id="loginTitle">식사 신청 시스템</h2>
+    <select id="langSelectLogin" style="margin-bottom:14px;">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+    <div class="field">
+      <label data-i18n="employeeId" id="lblEmployeeId">사번</label>
+      <input type="text" id="inputEmployeeId" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label data-i18n="name" id="lblName">이름</label>
+      <input type="text" id="inputName" autocomplete="off" />
+    </div>
+    <button data-i18n="loginBtn" id="loginBtn">로그인</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-help" id="loginHelp" data-i18n="loginHelp"></div>
+  </div>
+</div>
+
+<!-- 메인 앱 -->
+<main class="container hidden" id="appView">
+  <div class="tabs" id="mainTabs">
+    <button data-tab="my" class="active" data-i18n="myReservation" id="tabMy">내 식사 신청</button>
+    <button data-tab="admin" id="tabAdmin" class="hidden" data-i18n="adminPanel">관리자</button>
+  </div>
+
+  <!-- 내 식사 신청 -->
+  <section id="myView">
+    <div class="card">
+      <div class="week-nav">
+        <button class="secondary" data-i18n="prevWeek" id="prevWeekBtn">◀ 이전 주</button>
+        <div class="label" id="weekLabel">-</div>
+        <button class="secondary" data-i18n="nextWeek" id="nextWeekBtn">다음 주 ▶</button>
+      </div>
+      <div class="deadline-note" id="deadlineNote"></div>
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+  </section>
+
+  <!-- 관리자 -->
+  <section id="adminView" class="hidden">
+    <div class="tabs" id="adminTabs">
+      <button data-atab="status" class="active" data-i18n="reservationsStatus">신청 현황</button>
+      <button data-atab="daily" data-i18n="dailySummary">일일 집계</button>
+      <button data-atab="monthly" data-i18n="monthlySummary">월간 집계</button>
+      <button data-atab="employees" data-i18n="employees">직원 관리</button>
+    </div>
+
+    <section id="adminStatusView"></section>
+    <section id="adminDailyView" class="hidden"></section>
+    <section id="adminMonthlyView" class="hidden"></section>
+    <section id="adminEmployeesView" class="hidden"></section>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
