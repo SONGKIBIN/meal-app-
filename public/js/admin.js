@@ -17,7 +17,16 @@ function closeModal() {
 async function downloadFile(path, filename) {
   try {
     const res = await API.get(path);
-    const blob = res instanceof Response ? await res.blob() : res;
+    let blob;
+    if (res instanceof Response) {
+      blob = await res.blob();
+    } else if (res instanceof Blob) {
+      blob = res;
+    } else {
+      // 백업 다운로드처럼 서버 응답이 JSON 형식이라 api.js에서 이미 객체로 변환된 경우,
+      // 다시 텍스트로 만들어 파일로 저장합니다.
+      blob = new Blob([JSON.stringify(res, null, 2)], { type: "application/json" });
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
