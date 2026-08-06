@@ -5,9 +5,14 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 
 const Employee = require("./models/Employee");
+const Settings = require("./models/Settings");
 const authRoutes = require("./routes/auth");
 const reservationRoutes = require("./routes/reservations");
 const adminRoutes = require("./routes/admin");
+const menuRoutes = require("./routes/menu");
+const announcementRoutes = require("./routes/announcement");
+const pushRoutes = require("./routes/push");
+const cronRoutes = require("./routes/cron");
 
 const app = express();
 app.use(cors());
@@ -16,6 +21,10 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/menu", menuRoutes);
+app.use("/api/announcement", announcementRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/cron", cronRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
@@ -42,6 +51,17 @@ async function bootstrapAdmin() {
   }
 }
 
+async function bootstrapSettings() {
+  const existing = await Settings.findOne({ key: "global" });
+  if (!existing) {
+    await Settings.create({
+      key: "global",
+      deadlineHour: parseInt(process.env.APPLY_DEADLINE_HOUR || "9", 10),
+      deadlineMinute: parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10),
+    });
+  }
+}
+
 async function start() {
   if (!process.env.MONGODB_URI) {
     console.error("MONGODB_URI 환경변수가 설정되어 있지 않습니다. .env 파일을 확인해주세요.");
@@ -54,6 +74,7 @@ async function start() {
   await mongoose.connect(process.env.MONGODB_URI);
   console.log("[db] MongoDB 연결 성공");
   await bootstrapAdmin();
+  await bootstrapSettings();
   app.listen(PORT, () => console.log(`[server] http://localhost:${PORT} 에서 실행 중`));
 }
 

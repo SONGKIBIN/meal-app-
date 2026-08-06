@@ -5,8 +5,10 @@ const ExcelJS = require("exceljs");
 
 const Employee = require("../models/Employee");
 const Reservation = require("../models/Reservation");
+const Settings = require("../models/Settings");
+const Announcement = require("../models/Announcement");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
-const { getMonthDates, todayKSTStr } = require("../utils/dateUtil");
+const { getMonthDates, todayKSTStr, DEADLINE_HOUR, DEADLINE_MINUTE } = require("../utils/dateUtil");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -143,6 +145,19 @@ router.get("/reservations", async (req, res) => {
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
   res.json({ date, lunch, dinner, lunchCount: lunch.length, dinnerCount: dinner.length });
+});
+
+// 특정 날짜에 아직 신청하지 않은 재직 직원 목록 (중식/석식 각각)
+router.get("/reservations/pending", async (req, res) => {
+  const { date } = req.query;
+  if (!DATE_RE.test(date || "")) return res.status(400).json({ error: "date 파라미터가 필요합니다 (YYYY-MM-DD)." });
+  const employees = await Employee.find({ active: true }).sort({ department: 1, name: 1 }).lean();
+  const applied = await Reservation.find({ date, status: "applied" }).lean();
+  const appliedLunchIds = new Set(applied.filter((r) => r.mealType === "lunch").map((r) => r.employeeId));
+  const appliedDinnerIds = new Set(applied.filter((r) => r.mealType === "dinner").map((r) => r.employeeId));
+  const pendingLunch = employees.filter((e) => !appliedLunchIds.has(e.employeeId));
+  const pendingDinner = employees.filter((e) => !appliedDinnerIds.has(e.employeeId));
+  res.json({ date, totalEmployees: employees.length, pendingLunch, pendingDinner });
 });
 
 // 관리자 강제 변경 (마감시간/당일취소 제한을 무시하고 신청 또는 취소 처리)
@@ -313,6 +328,80 @@ router.get("/export/monthly", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "엑셀 생성 중 오류가 발생했습니다." });
+  }
+});
+
+/* ---------------------------- 설정 (마감시간) ---------------------------- */
+
+router.get("/settings", async (req, res) => {
+  let s = await Settings.findOne({ key: "global" });
+  if (!s) {
+    s = await Settings.create({ key: "global", deadlineHour: DEADLINE_HOUR, deadlineMinute: DEADLINE_MINUTE });
+  }
+  res.json({ settings: s });
+});
+
+router.put("/settings", async (req, res) => {
+  const hour = parseInt(req.body.deadlineHour, 10);
+  const minute = parseInt(req.body.deadlineMinute, 10);
+  if (Number.isNaN(hour) || hour < 0 || hour > 23 || Number.isNaN(minute) || minute < 0 || minute > 59) {
+    return res.status(400).json({ error: "올바른 시(0~23)와 분(0~59)을 입력해주세요." });
+  }
+  const s = await Settings.findOneAndUpdate(
+    { key: "global" },
+    { $set: { deadlineHour: hour, deadlineMinute: minute } },
+    { upsert: true, new: true }
+  );
+  res.json({ settings: s });
+});
+
+/* ---------------------------- 공지사항 관리 ---------------------------- */
+
+router.get("/announcements", async (req, res) => {
+  const list = await Announcement.find({}).sort({ createdAt: -1 }).limit(20).lean();
+  res.json({ announcements: list });
+});
+
+// 새 공지 게시 (기존에 활성화된 공지가 있으면 자동으로 종료 처리)
+router.post("/announcements", async (req, res) => {
+  const { message } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: "공지 내용을 입력해주세요." });
+  await Announcement.updateMany({ active: true }, { $set: { active: false } });
+  const a = await Announcement.create({ message: message.trim(), active: true });
+  res.json({ announcement: a });
+});
+
+router.put("/announcements/:id/deactivate", async (req, res) => {
+  const a = await Announcement.findByIdAndUpdate(req.params.id, { $set: { active: false } }, { new: true });
+  if (!a) return res.status(404).json({ error: "공지를 찾을 수 없습니다." });
+  res.json({ announcement: a });
+});
+
+/* ---------------------------- 데이터 백업 ---------------------------- */
+
+// 전체 데이터(직원, 신청내역, 설정, 공지)를 JSON 파일로 내려받습니다.
+// 관리자가 직접 PC에 보관해두는 백업용이며, 필요 시 개발자가 복원할 때 참고할 수 있습니다.
+router.get("/backup", async (req, res) => {
+  try {
+    const [employees, reservations, settings, announcements] = await Promise.all([
+      Employee.find({}).lean(),
+      Reservation.find({}).lean(),
+      Settings.findOne({ key: "global" }).lean(),
+      Announcement.find({}).lean(),
+    ]);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      employees,
+      reservations,
+      settings,
+      announcements,
+    };
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename=meal_app_backup_${todayKSTStr()}.json`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "백업 생성 중 오류가 발생했습니다." });
   }
 });
 

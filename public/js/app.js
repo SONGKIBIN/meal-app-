@@ -1,6 +1,7 @@
 /* 전역 상태 */
 let currentWeekAnchor = new Date().toISOString().slice(0, 10);
 let currentMainTab = "my";
+let deferredInstallPrompt = null;
 
 /* ---------------------------- 공통 유틸 ---------------------------- */
 
@@ -49,7 +50,11 @@ function showAppView() {
     `${escapeHtml(user.name)} (${escapeHtml(user.employeeId)})` +
     (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
   document.getElementById("tabAdmin").classList.toggle("hidden", user.role !== "admin");
+  if ("Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
+    document.getElementById("notifyBtn").classList.remove("hidden");
+  }
   switchMainTab("my");
+  checkAnnouncement();
 }
 
 async function doLogin() {
@@ -107,8 +112,176 @@ async function loadWeek(anchorDate) {
     document.getElementById("weekLabel").textContent = weekLabelText(data.week);
     document.getElementById("deadlineNote").textContent = t("deadlineNotice", data.deadline.hour, data.deadline.minute);
     renderWeekGrid(data.days);
+    checkTodayReminder(data.days);
   } catch (err) {
     grid.innerHTML = `<div>${escapeHtml(err.message)}</div>`;
+  }
+}
+
+/* ---------------------------- 오늘자 미신청 안내 팝업 ---------------------------- */
+
+function checkTodayReminder(days) {
+  const today = todayStr();
+  const todayInfo = days.find((d) => d.date === today);
+  if (!todayInfo) return;
+  const flagKey = `meal_reminder_shown_${today}`;
+  if (sessionStorage.getItem(flagKey)) return;
+  const lunchPending = !todayInfo.lunch.applied && todayInfo.lunch.canApply;
+  const dinnerPending = !todayInfo.dinner.applied && todayInfo.dinner.canApply;
+  if (!lunchPending && !dinnerPending) return;
+  sessionStorage.setItem(flagKey, "1");
+  const msg = lunchPending && dinnerPending ? t("reminderBothMsg") : lunchPending ? t("reminderLunchMsg") : t("reminderDinnerMsg");
+  openModal(`
+    <h3>${t("reminderTitle")}</h3>
+    <p>${escapeHtml(msg)}</p>
+    <div class="toolbar" style="margin-top:14px;">
+      ${lunchPending ? `<button data-quick-apply="lunch">${t("lunch")} ${t("applyNow")}</button>` : ""}
+      ${dinnerPending ? `<button data-quick-apply="dinner">${t("dinner")} ${t("applyNow")}</button>` : ""}
+      <button class="secondary" id="reminderLaterBtn">${t("remindLater")}</button>
+    </div>
+  `);
+  const laterBtn = document.getElementById("reminderLaterBtn");
+  if (laterBtn) laterBtn.addEventListener("click", closeModal);
+  document.querySelectorAll("[data-quick-apply]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        await API.post("/reservations", { date: today, mealType: btn.dataset.quickApply });
+        showToast(t("applySuccess"));
+        closeModal();
+        loadWeek(currentWeekAnchor);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+/* ---------------------------- 공지사항 배너 ---------------------------- */
+
+async function checkAnnouncement() {
+  const banner = document.getElementById("announcementBanner");
+  try {
+    const data = await API.get("/announcement/active");
+    if (!data.announcement) {
+      banner.classList.add("hidden");
+      return;
+    }
+    const dismissKey = `meal_announcement_dismissed_${data.announcement._id}`;
+    if (sessionStorage.getItem(dismissKey)) {
+      banner.classList.add("hidden");
+      return;
+    }
+    banner.innerHTML = `<div class="msg">${escapeHtml(data.announcement.message)}</div><button class="secondary" id="announcementCloseBtn">${t("close")}</button>`;
+    banner.classList.remove("hidden");
+    document.getElementById("announcementCloseBtn").addEventListener("click", () => {
+      sessionStorage.setItem(dismissKey, "1");
+      banner.classList.add("hidden");
+    });
+  } catch (err) {
+    banner.classList.add("hidden");
+  }
+}
+
+/* ---------------------------- 주간 식단표 보기 (이번 주 / 다음 주) ---------------------------- */
+
+async function toggleMenuView() {
+  const area = document.getElementById("menuViewArea");
+  const btn = document.getElementById("toggleMenuBtn");
+  if (!area.classList.contains("hidden")) {
+    area.classList.add("hidden");
+    btn.textContent = t("viewMenu");
+    return;
+  }
+  btn.textContent = t("hideMenu");
+  area.classList.remove("hidden");
+  area.innerHTML = t("loading");
+  const thisMonday = mondayOf(todayStr());
+  const nextMonday = (() => {
+    const d = new Date(thisMonday + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + 7);
+    return d.toISOString().slice(0, 10);
+  })();
+  try {
+    const [thisData, nextData] = await Promise.all([
+      API.get(`/menu/${thisMonday}`),
+      API.get(`/menu/${nextMonday}`),
+    ]);
+    const block = (label, menu) => `
+      <div class="card" style="margin-bottom:10px;">
+        <h3>${label}</h3>
+        ${menu
+          ? (menu.imageData ? `<img src="${menu.imageData}" style="max-width:100%;border-radius:8px;border:1px solid var(--border);">` : "") +
+            (menu.note ? `<p style="white-space:pre-wrap;">${escapeHtml(menu.note)}</p>` : "")
+          : `<p class="deadline-note">${t("noMenu")}</p>`}
+      </div>
+    `;
+    area.innerHTML = block(t("thisWeekMenu"), thisData.menu) + block(t("nextWeekMenu"), nextData.menu);
+  } catch (err) {
+    area.textContent = err.message;
+  }
+}
+
+/* ---------------------------- PWA 설치 ---------------------------- */
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById("installBtn").classList.remove("hidden");
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  document.getElementById("installBtn").classList.add("hidden");
+});
+
+async function onInstallClick() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById("installBtn").classList.add("hidden");
+}
+
+/* ---------------------------- 휴대폰(웹 푸시) 알림 구독 ---------------------------- */
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function enableNotifications() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    alert(t("notifyFailed"));
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      alert(t("notifyFailed"));
+      return;
+    }
+    const { publicKey } = await API.get("/push/vapid-public-key");
+    if (!publicKey) {
+      alert(t("notifyFailed"));
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+    await API.post("/push/subscribe", { subscription: sub });
+    showToast(t("notifyEnabled"));
+  } catch (err) {
+    console.error(err);
+    alert(t("notifyFailed"));
   }
 }
 
@@ -213,6 +386,9 @@ function init() {
   document.getElementById("logoutBtn").addEventListener("click", doLogout);
   document.getElementById("prevWeekBtn").addEventListener("click", () => shiftWeek(-7));
   document.getElementById("nextWeekBtn").addEventListener("click", () => shiftWeek(7));
+  document.getElementById("toggleMenuBtn").addEventListener("click", toggleMenuView);
+  document.getElementById("installBtn").addEventListener("click", onInstallClick);
+  document.getElementById("notifyBtn").addEventListener("click", enableNotifications);
 
   document.querySelectorAll("#mainTabs button").forEach((b) => {
     b.addEventListener("click", () => switchMainTab(b.dataset.tab));

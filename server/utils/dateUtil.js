@@ -79,15 +79,18 @@ const DEADLINE_MINUTE = parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10);
 
 /**
  * 신청 가능 여부: 오늘보다 미래 날짜는 항상 가능,
- * 오늘 날짜는 마감시각(기본 09:30) 이전까지만 가능, 과거 날짜는 불가능.
+ * 오늘 날짜는 마감시각(기본 09:30, 관리자가 설정에서 변경 가능) 이전까지만 가능, 과거 날짜는 불가능.
+ * deadline: { hour, minute } - 생략 시 환경변수 기본값 사용
  */
-function isApplyAllowed(dateStr, now = new Date()) {
+function isApplyAllowed(dateStr, now = new Date(), deadline = {}) {
+  const hour = Number.isInteger(deadline.hour) ? deadline.hour : DEADLINE_HOUR;
+  const minute = Number.isInteger(deadline.minute) ? deadline.minute : DEADLINE_MINUTE;
   const today = todayKSTStr();
   if (dateStr > today) return true;
   if (dateStr < today) return false;
   const parts = getKSTParts(now);
-  if (parts.hour < DEADLINE_HOUR) return true;
-  if (parts.hour === DEADLINE_HOUR && parts.minute < DEADLINE_MINUTE) return true;
+  if (parts.hour < hour) return true;
+  if (parts.hour === hour && parts.minute < minute) return true;
   return false;
 }
 

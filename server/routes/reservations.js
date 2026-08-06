@@ -1,5 +1,6 @@
 const express = require("express");
 const Reservation = require("../models/Reservation");
+const Settings = require("../models/Settings");
 const { requireAuth } = require("../middleware/auth");
 const {
   getWeekDates,
@@ -15,11 +16,21 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 router.use(requireAuth);
 
+// 관리자가 설정 화면에서 저장한 마감시간을 가져옵니다 (없으면 환경변수 기본값 사용)
+async function getDeadline() {
+  const s = await Settings.findOne({ key: "global" }).lean();
+  if (s && Number.isInteger(s.deadlineHour) && Number.isInteger(s.deadlineMinute)) {
+    return { hour: s.deadlineHour, minute: s.deadlineMinute };
+  }
+  return { hour: DEADLINE_HOUR, minute: DEADLINE_MINUTE };
+}
+
 // 특정 날짜가 포함된 주(월~일)의 신청 현황 조회
 router.get("/week", async (req, res) => {
   try {
     const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : undefined;
     const week = getWeekDates(anchor || new Date().toISOString().slice(0, 10));
+    const deadline = await getDeadline();
     const rows = await Reservation.find({
       employeeId: req.user.employeeId,
       date: { $in: week },
@@ -35,17 +46,17 @@ router.get("/week", async (req, res) => {
       date,
       lunch: {
         applied: !!map[`${date}_lunch`],
-        canApply: isApplyAllowed(date),
+        canApply: isApplyAllowed(date, new Date(), deadline),
         canCancel: isCancelAllowed(date),
       },
       dinner: {
         applied: !!map[`${date}_dinner`],
-        canApply: isApplyAllowed(date),
+        canApply: isApplyAllowed(date, new Date(), deadline),
         canCancel: isCancelAllowed(date),
       },
     }));
 
-    res.json({ week, days, deadline: { hour: DEADLINE_HOUR, minute: DEADLINE_MINUTE } });
+    res.json({ week, days, deadline });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "서버 오류가 발생했습니다." });
@@ -59,9 +70,10 @@ router.post("/", async (req, res) => {
     if (!DATE_RE.test(date) || !MEAL_TYPES.includes(mealType)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
-    if (!isApplyAllowed(date)) {
+    const deadline = await getDeadline();
+    if (!isApplyAllowed(date, new Date(), deadline)) {
       return res.status(403).json({
-        error: `신청 가능 시간이 지났습니다. (당일 신청은 오전 ${DEADLINE_HOUR}시 ${DEADLINE_MINUTE}분까지 가능)`,
+        error: `신청 가능 시간이 지났습니다. (당일 신청은 오전 ${deadline.hour}시 ${String(deadline.minute).padStart(2, "0")}분까지 가능)`,
       });
     }
     await Reservation.findOneAndUpdate(
