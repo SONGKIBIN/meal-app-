@@ -5,15 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>식사 신청 시스템</title>
 <link rel="manifest" href="/manifest.json" />
-<meta name="theme-color" content="#2563eb" />
-<link rel="icon" href="/icons/icon-192.png" />
+<meta name="theme-color" content="#C4162B" />
+<link rel="icon" href="/img/icon-32.png" sizes="32x32" />
+<link rel="icon" href="/icons/icon-192.png" sizes="192x192" />
 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
 
 <header class="topbar hidden" id="topbar">
-  <div class="brand" data-i18n="appTitle" id="brandLabel">식사 신청 시스템</div>
+  <div class="brand">
+    <img src="/img/logo.png" alt="신흥정밀" class="brand-logo" />
+    <span data-i18n="appTitle" id="brandLabel">식사 신청 시스템</span>
+  </div>
   <div class="right">
     <span class="badge" id="userBadge"></span>
     <button class="secondary hidden" data-i18n="enableNotify" id="notifyBtn">휴대폰 알림 받기</button>
@@ -30,6 +34,7 @@
 <!-- 로그인 화면 -->
 <div id="loginView">
   <div class="card login-card">
+    <img src="/img/logo.png" alt="신흥정밀" class="login-logo" />
     <h2 data-i18n="appTitle" id="loginTitle">식사 신청 시스템</h2>
     <select id="langSelectLogin" style="margin-bottom:14px;">
       <option value="ko">한국어</option>
