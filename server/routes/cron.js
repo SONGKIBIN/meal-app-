@@ -5,6 +5,7 @@ const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const PushSubscription = require("../models/PushSubscription");
 const NotificationLog = require("../models/NotificationLog");
+const { cleanupOldMenus } = require("./menu");
 const {
   getKSTParts,
   LUNCH_DEADLINE_HOUR,
@@ -74,21 +75,29 @@ router.get("/tick", async (req, res) => {
     if (process.env.CRON_SECRET && req.query.secret !== process.env.CRON_SECRET) {
       return res.status(403).json({ error: "forbidden" });
     }
-    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-      return res.json({ ok: true, skipped: "VAPID 키가 설정되지 않아 알림 기능이 비활성화되어 있습니다." });
-    }
 
     const parts = getKSTParts(new Date());
     const today = parts.dateStr;
     const nowMinutes = parts.hour * 60 + parts.minute;
+
+    const results = { menuCleanup: "skip", reminderLunch: "skip", reminderDinner: "skip", dailySummary: "skip" };
+
+    // 0) 오래된 식단표 자동 정리: 하루 1회, 푸시 알림(VAPID) 설정 여부와 관계없이 항상 동작합니다.
+    if (await markSentOnce(today, "menuCleanup")) {
+      const deleted = await cleanupOldMenus();
+      results.menuCleanup = `done(${deleted})`;
+    }
+
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      return res.json({ ok: true, date: today, ...results, pushSkipped: "VAPID 키가 설정되지 않아 알림 기능이 비활성화되어 있습니다." });
+    }
+
     const lunchDeadline = await getDeadline("lunch");
     const dinnerDeadline = await getDeadline("dinner");
     const lunchDeadlineMinutes = lunchDeadline.hour * 60 + lunchDeadline.minute;
     const dinnerDeadlineMinutes = dinnerDeadline.hour * 60 + dinnerDeadline.minute;
     const lunchReminderMinutes = lunchDeadlineMinutes - REMINDER_MINUTES_BEFORE;
     const dinnerReminderMinutes = dinnerDeadlineMinutes - REMINDER_MINUTES_BEFORE;
-
-    const results = { reminderLunch: "skip", reminderDinner: "skip", dailySummary: "skip" };
 
     // 1) 중식 마감 임박 알림: (중식 마감 30분 전) ~ (중식 마감 시각) 사이 최초 1회, 중식 미신청 직원에게만 발송
     if (nowMinutes >= lunchReminderMinutes && nowMinutes < lunchDeadlineMinutes) {

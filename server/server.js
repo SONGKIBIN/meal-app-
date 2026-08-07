@@ -10,6 +10,7 @@ const authRoutes = require("./routes/auth");
 const reservationRoutes = require("./routes/reservations");
 const adminRoutes = require("./routes/admin");
 const menuRoutes = require("./routes/menu");
+const { cleanupOldMenus } = menuRoutes;
 const announcementRoutes = require("./routes/announcement");
 const pushRoutes = require("./routes/push");
 const cronRoutes = require("./routes/cron");
@@ -77,6 +78,12 @@ async function start() {
   console.log("[db] MongoDB 연결 성공");
   await bootstrapAdmin();
   await bootstrapSettings();
+  try {
+    const deleted = await cleanupOldMenus();
+    if (deleted) console.log(`[bootstrap] 오래된 식단표 ${deleted}건 자동 삭제`);
+  } catch (err) {
+    console.error("[bootstrap] 식단표 정리 중 오류:", err.message);
+  }
   app.listen(PORT, () => console.log(`[server] http://localhost:${PORT} 에서 실행 중`));
 }
 
