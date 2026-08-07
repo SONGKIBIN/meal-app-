@@ -104,6 +104,7 @@ const AdminUI = {
             <option value="lunch">${t("lunch")}</option>
             <option value="dinner">${t("dinner")}</option>
           </select>
+          <input type="number" id="overrideHeadcount" min="1" max="9999" placeholder="${t("headcountPlaceholder")}" style="width:110px;" title="${t("headcountHelp")}">
           <button id="overrideAddBtn">${t("apply")}</button>
         </div>
         <div id="statusLists">${t("loading")}</div>
@@ -127,6 +128,7 @@ const AdminUI = {
           <td>${escapeHtml(r.employeeId)}</td>
           <td>${escapeHtml(r.employeeName)}</td>
           <td>${escapeHtml(r.department)}</td>
+          <td>${r.headcount ?? 1}</td>
           <td>${r.modifiedByAdmin ? "O" : ""}</td>
           <td><button class="danger" data-cancel-id="${escapeHtml(r.employeeId)}" data-meal="${mealType}">${t("cancel")}</button></td>
         </tr>`).join("");
@@ -137,13 +139,13 @@ const AdminUI = {
         </div>
         <h3>${t("lunch")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>Admin</th><th></th></tr></thead>
-          <tbody>${rowsHtml(data.lunch, "lunch") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>Admin</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.lunch, "lunch") || `<tr><td colspan="6">${t("noData")}</td></tr>`}</tbody>
         </table></div>
         <h3>${t("dinner")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>Admin</th><th></th></tr></thead>
-          <tbody>${rowsHtml(data.dinner, "dinner") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>Admin</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.dinner, "dinner") || `<tr><td colspan="6">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
       listEl.querySelectorAll("[data-cancel-id]").forEach((btn) => {
@@ -162,7 +164,7 @@ const AdminUI = {
       const rowsHtml = (rows) => rows.map((e) => `
         <tr>
           <td>${escapeHtml(e.employeeId)}</td>
-          <td>${escapeHtml(e.name)}</td>
+          <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
           <td>${escapeHtml(e.department)}</td>
         </tr>`).join("");
       el.innerHTML = `
@@ -189,15 +191,20 @@ const AdminUI = {
   async overrideApply() {
     const employeeId = document.getElementById("overrideEmpId").value.trim();
     const mealType = document.getElementById("overrideMealType").value;
+    const headcountRaw = document.getElementById("overrideHeadcount").value.trim();
     if (!employeeId) return;
-    await this.overrideSet(employeeId, mealType, "applied");
+    const headcount = headcountRaw ? parseInt(headcountRaw, 10) : undefined;
+    await this.overrideSet(employeeId, mealType, "applied", headcount);
     document.getElementById("overrideEmpId").value = "";
+    document.getElementById("overrideHeadcount").value = "";
   },
 
-  async overrideSet(employeeId, mealType, status) {
+  async overrideSet(employeeId, mealType, status, headcount) {
     if (status === "cancelled" && !confirm(t("confirmCancel"))) return;
     try {
-      await API.put("/admin/reservations/override", { employeeId, date: this.statusDate, mealType, status });
+      const body = { employeeId, date: this.statusDate, mealType, status };
+      if (Number.isInteger(headcount)) body.headcount = headcount;
+      await API.put("/admin/reservations/override", body);
       showToast(status === "applied" ? t("applySuccess") : t("cancelSuccess"));
       this.loadStatusList();
       this.loadPendingList();
@@ -244,8 +251,8 @@ const AdminUI = {
           <div class="stat"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinnerCount")}</div></div>
         </div>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("mealType")}</th><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th></tr></thead>
-          <tbody>${rows.map((r) => `<tr><td>${r.mealLabel}</td><td>${escapeHtml(r.employeeId)}</td><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(r.department)}</td></tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("mealType")}</th><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
+          <tbody>${rows.map((r) => `<tr><td>${r.mealLabel}</td><td>${escapeHtml(r.employeeId)}</td><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(r.department)}</td><td>${r.headcount ?? 1}</td></tr>`).join("") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
     } catch (err) {
@@ -316,8 +323,8 @@ const AdminUI = {
           <input type="text" id="empSearchInput" placeholder="${t("empSearchPlaceholder")}" value="${escapeHtml(this.empSearchTerm)}" style="min-width:220px;">
         </div>
         <div class="table-wrap"><table class="data-table" id="empTable">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("role")}</th><th>${t("active")}</th><th></th></tr></thead>
-          <tbody><tr><td colspan="6">${t("loading")}</td></tr></tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("employeeType")}</th><th>${t("role")}</th><th>${t("active")}</th><th></th></tr></thead>
+          <tbody><tr><td colspan="7">${t("loading")}</td></tr></tbody>
         </table></div>
       </div>
     `;
@@ -358,6 +365,7 @@ const AdminUI = {
           <td>${escapeHtml(e.employeeId)}</td>
           <td>${escapeHtml(e.name)}</td>
           <td>${escapeHtml(e.department)}</td>
+          <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>` : t("individualType")}</td>
           <td>${e.role === "admin" ? t("admin") : t("user")}</td>
           <td>${e.active ? t("active") : t("inactive")}</td>
           <td>
@@ -365,7 +373,7 @@ const AdminUI = {
             <button class="danger" data-del="${e._id}">${t("delete")}</button>
           </td>
         </tr>
-      `).join("") || `<tr><td colspan="6">${t("noData")}</td></tr>`;
+      `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`;
     tbody.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => this.openEmployeeModal(b.dataset.edit)));
     tbody.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => this.deleteEmployee(b.dataset.del)));
   },
@@ -383,6 +391,12 @@ const AdminUI = {
           <option value="admin" ${emp && emp.role === "admin" ? "selected" : ""}>${t("admin")}</option>
         </select>
       </div>
+      <div class="field"><label>${t("employeeType")}</label>
+        <select id="mEmployeeType">
+          <option value="individual" ${!emp || emp.employeeType !== "contractor" ? "selected" : ""}>${t("individualType")}</option>
+          <option value="contractor" ${emp && emp.employeeType === "contractor" ? "selected" : ""}>${t("contractorType")}</option>
+        </select>
+      </div>
       <div class="toolbar" style="margin-top:14px;">
         <button id="mSaveBtn">${t("save")}</button>
         <button class="secondary" id="mCloseBtn">${t("close")}</button>
@@ -394,9 +408,10 @@ const AdminUI = {
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
       const role = document.getElementById("mRole").value;
+      const employeeType = document.getElementById("mEmployeeType").value;
       try {
-        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role });
-        else await API.post("/admin/employees", { employeeId, name, department, role });
+        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, employeeType });
+        else await API.post("/admin/employees", { employeeId, name, department, role, employeeType });
         closeModal();
         showToast(t("save"));
         this.loadEmployees();

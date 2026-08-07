@@ -95,11 +95,12 @@ function isApplyAllowed(dateStr, now = new Date(), deadline = {}) {
 }
 
 /**
- * 취소 가능 여부: 오늘보다 미래 날짜만 취소 가능 (당일 취소는 시간과 무관하게 금지)
+ * 취소 가능 여부: 신청과 동일한 규칙을 적용합니다.
+ * 미래 날짜는 항상 취소 가능, 오늘 날짜는 마감시각 이전까지만 취소 가능, 과거 날짜는 취소 불가.
+ * deadline: { hour, minute } - 생략 시 환경변수 기본값 사용
  */
-function isCancelAllowed(dateStr) {
-  const today = todayKSTStr();
-  return dateStr > today;
+function isCancelAllowed(dateStr, now = new Date(), deadline = {}) {
+  return isApplyAllowed(dateStr, now, deadline);
 }
 
 module.exports = {

@@ -6,6 +6,7 @@ const {
   getWeekDates,
   isApplyAllowed,
   isCancelAllowed,
+  todayKSTStr,
   DEADLINE_HOUR,
   DEADLINE_MINUTE,
 } = require("../utils/dateUtil");
@@ -39,22 +40,28 @@ router.get("/week", async (req, res) => {
 
     const map = {};
     for (const r of rows) {
-      map[`${r.date}_${r.mealType}`] = true;
+      map[`${r.date}_${r.mealType}`] = r.headcount ?? 1;
     }
 
-    const days = week.map((date) => ({
-      date,
-      lunch: {
-        applied: !!map[`${date}_lunch`],
-        canApply: isApplyAllowed(date, new Date(), deadline),
-        canCancel: isCancelAllowed(date),
-      },
-      dinner: {
-        applied: !!map[`${date}_dinner`],
-        canApply: isApplyAllowed(date, new Date(), deadline),
-        canCancel: isCancelAllowed(date),
-      },
-    }));
+    const days = week.map((date) => {
+      const canApply = isApplyAllowed(date, new Date(), deadline);
+      const canCancel = isCancelAllowed(date, new Date(), deadline);
+      return {
+        date,
+        lunch: {
+          applied: !!map[`${date}_lunch`],
+          headcount: map[`${date}_lunch`] || 0,
+          canApply,
+          canCancel,
+        },
+        dinner: {
+          applied: !!map[`${date}_dinner`],
+          headcount: map[`${date}_dinner`] || 0,
+          canApply,
+          canCancel,
+        },
+      };
+    });
 
     res.json({ week, days, deadline });
   } catch (err) {
@@ -63,7 +70,7 @@ router.get("/week", async (req, res) => {
   }
 });
 
-// 신청
+// 신청 (도급회사/단체 계정은 headcount로 인원수를 함께 전달합니다)
 router.post("/", async (req, res) => {
   try {
     const { date, mealType } = req.body;
@@ -76,6 +83,17 @@ router.post("/", async (req, res) => {
         error: `신청 가능 시간이 지났습니다. (당일 신청은 오전 ${deadline.hour}시 ${String(deadline.minute).padStart(2, "0")}분까지 가능)`,
       });
     }
+
+    const isContractor = req.user.employeeType === "contractor";
+    let headcount = 1;
+    if (isContractor) {
+      const n = parseInt(req.body.headcount, 10);
+      if (!Number.isInteger(n) || n < 1 || n > 9999) {
+        return res.status(400).json({ error: "인원수는 1 이상 9999 이하의 숫자로 입력해주세요." });
+      }
+      headcount = n;
+    }
+
     await Reservation.findOneAndUpdate(
       { employeeId: req.user.employeeId, date, mealType },
       {
@@ -84,11 +102,12 @@ router.post("/", async (req, res) => {
           employeeName: req.user.name,
           department: req.user.department,
           modifiedByAdmin: false,
+          headcount,
         },
       },
       { upsert: true, new: true }
     );
-    res.json({ ok: true });
+    res.json({ ok: true, headcount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "서버 오류가 발생했습니다." });
@@ -102,8 +121,14 @@ router.delete("/", async (req, res) => {
     if (!DATE_RE.test(date) || !MEAL_TYPES.includes(mealType)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
-    if (!isCancelAllowed(date)) {
-      return res.status(403).json({ error: "당일 신청 건은 취소할 수 없습니다. 변경이 필요하면 관리자에게 문의해주세요." });
+    const deadline = await getDeadline();
+    if (!isCancelAllowed(date, new Date(), deadline)) {
+      const today = todayKSTStr();
+      const message =
+        date < today
+          ? "지난 날짜의 신청은 취소할 수 없습니다."
+          : `취소 가능 시간이 지났습니다. (당일 취소는 오전 ${deadline.hour}시 ${String(deadline.minute).padStart(2, "0")}분까지 가능하며, 이후에는 관리자에게 문의해주세요.)`;
+      return res.status(403).json({ error: message });
     }
     await Reservation.findOneAndUpdate(
       { employeeId: req.user.employeeId, date, mealType },

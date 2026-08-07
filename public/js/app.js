@@ -121,6 +121,7 @@ async function loadWeek(anchorDate) {
 /* ---------------------------- 오늘자 미신청 안내 팝업 ---------------------------- */
 
 function checkTodayReminder(days) {
+  if (isContractorUser()) return; // 도급회사(단체) 계정은 인원수를 직접 입력하는 방식이라 안내 팝업을 띄우지 않습니다.
   const today = todayStr();
   const todayInfo = days.find((d) => d.date === today);
   if (!todayInfo) return;
@@ -285,9 +286,15 @@ async function enableNotifications() {
   }
 }
 
+function isContractorUser() {
+  const user = API.getUser();
+  return !!user && user.employeeType === "contractor";
+}
+
 function renderWeekGrid(days) {
   const grid = document.getElementById("weekGrid");
   const today = todayStr();
+  const contractor = isContractorUser();
   grid.innerHTML = days.map((day) => {
     const wd = WEEKDAY_KEYS[new Date(day.date + "T00:00:00Z").getUTCDay()];
     const isToday = day.date === today;
@@ -295,8 +302,8 @@ function renderWeekGrid(days) {
       <div class="day-cell ${isToday ? "today" : ""}">
         <div class="date-label">${day.date.slice(5)}</div>
         <div class="weekday-label">${t(wd)}</div>
-        ${renderMealButton(day.date, "lunch", day.lunch)}
-        ${renderMealButton(day.date, "dinner", day.dinner)}
+        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch)}
+        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner)}
       </div>
     `;
   }).join("");
@@ -304,6 +311,51 @@ function renderWeekGrid(days) {
   grid.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", onMealButtonClick);
   });
+  grid.querySelectorAll("button[data-headcount-save]").forEach((btn) => {
+    btn.addEventListener("click", onHeadcountSaveClick);
+  });
+}
+
+// 도급회사(단체) 계정용: 토글 버튼 대신 인원수를 숫자로 입력해 신청/수정/취소(0 입력)합니다.
+function renderHeadcountRow(date, mealType, info) {
+  const mealLabel = t(mealType);
+  const editable = info.canApply; // 신청 가능 여부와 취소(변경) 가능 여부가 동일한 규칙이라 하나로 사용합니다.
+  const value = info.headcount ? info.headcount : "";
+  return `
+    <div class="meal-row headcount-row" data-date="${date}" data-meal="${mealType}">
+      <div class="meal-name">${mealLabel}</div>
+      <input type="number" min="0" max="9999" class="headcount-input" placeholder="${t("headcountPlaceholder")}" value="${value}" ${editable ? "" : "disabled"}>
+      <button data-headcount-save ${editable ? "" : "disabled"}>${t("saveHeadcount")}</button>
+    </div>
+  `;
+}
+
+async function onHeadcountSaveClick(e) {
+  const btn = e.currentTarget;
+  const row = btn.closest(".headcount-row");
+  const date = row.dataset.date;
+  const meal = row.dataset.meal;
+  const input = row.querySelector(".headcount-input");
+  const raw = input.value.trim();
+  const n = raw === "" ? 0 : parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 0 || n > 9999) {
+    alert(t("headcountPlaceholder"));
+    return;
+  }
+  btn.disabled = true;
+  try {
+    if (n === 0) {
+      await API.del("/reservations", { date, mealType: meal });
+      showToast(t("cancelSuccess"));
+    } else {
+      await API.post("/reservations", { date, mealType: meal, headcount: n });
+      showToast(t("headcountSaved"));
+    }
+    loadWeek(currentWeekAnchor);
+  } catch (err) {
+    alert(err.message);
+    loadWeek(currentWeekAnchor);
+  }
 }
 
 function renderMealButton(date, mealType, info) {

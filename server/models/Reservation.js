@@ -9,6 +9,8 @@ const reservationSchema = new mongoose.Schema(
     mealType: { type: String, enum: ["lunch", "dinner"], required: true }, // lunch=중식, dinner=석식
     status: { type: String, enum: ["applied", "cancelled"], default: "applied" },
     modifiedByAdmin: { type: Boolean, default: false },
+    // 도급회사(단체) 계정이 한 번에 신청하는 인원수. 개인 직원은 항상 1입니다.
+    headcount: { type: Number, default: 1, min: 0 },
   },
   { timestamps: true }
 );

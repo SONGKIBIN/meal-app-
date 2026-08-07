@@ -7,6 +7,8 @@ const employeeSchema = new mongoose.Schema(
     department: { type: String, default: "", trim: true }, // 부서
     role: { type: String, enum: ["user", "admin"], default: "user" },
     active: { type: Boolean, default: true }, // 재직 여부 (퇴사자는 false)
+    // individual = 개인 직원(1명씩 신청), contractor = 도급회사 등 단체 계정(인원수를 숫자로 입력해 일괄 신청)
+    employeeType: { type: String, enum: ["individual", "contractor"], default: "individual" },
   },
   { timestamps: true }
 );

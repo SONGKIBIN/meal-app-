@@ -146,6 +146,7 @@ main.container {
 .meal-row button { width: 100%; }
 .meal-row button.applied { background: var(--success); }
 .meal-row button.applied:hover { background: #15803d; }
+.meal-row.headcount-row input[type=number] { width: 100%; text-align: center; }
 
 /* 테이블 */
 table.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

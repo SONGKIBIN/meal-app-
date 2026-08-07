@@ -26,7 +26,7 @@ router.get("/employees", async (req, res) => {
 
 router.post("/employees", async (req, res) => {
   try {
-    const { employeeId, name, department, role } = req.body;
+    const { employeeId, name, department, role, employeeType } = req.body;
     if (!employeeId || !name) {
       return res.status(400).json({ error: "사번과 이름은 필수입니다." });
     }
@@ -38,6 +38,7 @@ router.post("/employees", async (req, res) => {
           name: String(name).trim(),
           department: department ? String(department).trim() : "",
           role: role === "admin" ? "admin" : "user",
+          employeeType: employeeType === "contractor" ? "contractor" : "individual",
           active: true,
         },
       },
@@ -52,12 +53,13 @@ router.post("/employees", async (req, res) => {
 
 router.put("/employees/:id", async (req, res) => {
   try {
-    const { name, department, role, active } = req.body;
+    const { name, department, role, active, employeeType } = req.body;
     const update = {};
     if (name !== undefined) update.name = String(name).trim();
     if (department !== undefined) update.department = String(department).trim();
     if (role !== undefined) update.role = role === "admin" ? "admin" : "user";
     if (active !== undefined) update.active = !!active;
+    if (employeeType !== undefined) update.employeeType = employeeType === "contractor" ? "contractor" : "individual";
     const emp = await Employee.findByIdAndUpdate(req.params.id, { $set: update }, { new: true });
     if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
     res.json({ employee: emp });
@@ -87,8 +89,10 @@ router.get("/employees/import-template", async (req, res) => {
     { header: "사번", key: "employeeId", width: 15 },
     { header: "이름", key: "name", width: 15 },
     { header: "부서", key: "department", width: 20 },
+    { header: "구분(개인/도급)", key: "employeeType", width: 16 },
   ];
-  ws.addRow({ employeeId: "10001", name: "홍길동", department: "생산1팀" });
+  ws.addRow({ employeeId: "10001", name: "홍길동", department: "생산1팀", employeeType: "개인" });
+  ws.addRow({ employeeId: "20001", name: "OO건설(도급)", department: "협력업체", employeeType: "도급" });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", "attachment; filename=employee_template.xlsx");
   await wb.xlsx.write(res);
@@ -111,6 +115,8 @@ router.post("/employees/import", upload.single("file"), async (req, res) => {
       const employeeId = String(row["사번"] ?? row["employeeId"] ?? "").trim();
       const name = String(row["이름"] ?? row["name"] ?? "").trim();
       const department = String(row["부서"] ?? row["department"] ?? "").trim();
+      const typeRaw = String(row["구분(개인/도급)"] ?? row["구분"] ?? row["employeeType"] ?? "").trim();
+      const employeeType = typeRaw.includes("도급") || typeRaw.toLowerCase() === "contractor" ? "contractor" : "individual";
       if (!employeeId || !name) {
         errors.push(`${idx + 2}행: 사번 또는 이름이 비어있어 건너뛰었습니다.`);
         continue;
@@ -119,11 +125,12 @@ router.post("/employees/import", upload.single("file"), async (req, res) => {
       if (existing) {
         existing.name = name;
         existing.department = department;
+        existing.employeeType = employeeType;
         existing.active = true;
         await existing.save();
         updated++;
       } else {
-        await Employee.create({ employeeId, name, department, role: "user", active: true });
+        await Employee.create({ employeeId, name, department, role: "user", employeeType, active: true });
         created++;
       }
     }
@@ -144,7 +151,8 @@ router.get("/reservations", async (req, res) => {
   const rows = await Reservation.find({ date, status: "applied" }).sort({ department: 1, employeeName: 1 }).lean();
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
-  res.json({ date, lunch, dinner, lunchCount: lunch.length, dinnerCount: dinner.length });
+  const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
+  res.json({ date, lunch, dinner, lunchCount: sumHeadcount(lunch), dinnerCount: sumHeadcount(dinner) });
 });
 
 // 특정 날짜에 아직 신청하지 않은 재직 직원 목록 (중식/석식 각각)
@@ -163,23 +171,25 @@ router.get("/reservations/pending", async (req, res) => {
 // 관리자 강제 변경 (마감시간/당일취소 제한을 무시하고 신청 또는 취소 처리)
 router.put("/reservations/override", async (req, res) => {
   try {
-    const { employeeId, date, mealType, status } = req.body;
+    const { employeeId, date, mealType, status, headcount } = req.body;
     if (!DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
     const emp = await Employee.findOne({ employeeId });
     if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
 
+    const set = {
+      status,
+      employeeName: emp.name,
+      department: emp.department,
+      modifiedByAdmin: true,
+    };
+    const n = parseInt(headcount, 10);
+    if (Number.isInteger(n) && n >= 0) set.headcount = n;
+
     const updated = await Reservation.findOneAndUpdate(
       { employeeId, date, mealType },
-      {
-        $set: {
-          status,
-          employeeName: emp.name,
-          department: emp.department,
-          modifiedByAdmin: true,
-        },
-      },
+      { $set: set },
       { upsert: true, new: true }
     );
     res.json({ reservation: updated });
@@ -197,10 +207,11 @@ router.get("/summary/daily", async (req, res) => {
   const rows = await Reservation.find({ date, status: "applied" }).lean();
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
+  const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
   res.json({
     date,
-    lunchCount: lunch.length,
-    dinnerCount: dinner.length,
+    lunchCount: sumHeadcount(lunch),
+    dinnerCount: sumHeadcount(dinner),
     lunch,
     dinner,
   });
@@ -216,7 +227,7 @@ router.get("/summary/monthly", async (req, res) => {
   const byDate = {};
   for (const d of dates) byDate[d] = { date: d, lunchCount: 0, dinnerCount: 0 };
   for (const r of rows) {
-    byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"]++;
+    byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"] += r.headcount ?? 1;
   }
   const days = dates.map((d) => byDate[d]);
   const totalLunch = days.reduce((s, d) => s + d.lunchCount, 0);
@@ -240,6 +251,7 @@ router.get("/export/daily", async (req, res) => {
       { header: "사번", key: "employeeId", width: 12 },
       { header: "이름", key: "employeeName", width: 14 },
       { header: "부서", key: "department", width: 18 },
+      { header: "인원수", key: "headcount", width: 10 },
       { header: "관리자수정", key: "modifiedByAdmin", width: 12 },
     ];
     ws.getRow(1).font = { bold: true };
@@ -250,11 +262,13 @@ router.get("/export/daily", async (req, res) => {
         employeeId: r.employeeId,
         employeeName: r.employeeName,
         department: r.department,
+        headcount: r.headcount ?? 1,
         modifiedByAdmin: r.modifiedByAdmin ? "O" : "",
       });
     });
-    const lunchCount = rows.filter((r) => r.mealType === "lunch").length;
-    const dinnerCount = rows.filter((r) => r.mealType === "dinner").length;
+    const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
+    const lunchCount = sumHeadcount(rows.filter((r) => r.mealType === "lunch"));
+    const dinnerCount = sumHeadcount(rows.filter((r) => r.mealType === "dinner"));
     ws.addRow({});
     ws.addRow({ date: "합계", mealType: `중식 ${lunchCount}명 / 석식 ${dinnerCount}명` });
 
@@ -288,7 +302,7 @@ router.get("/export/monthly", async (req, res) => {
     summary.getRow(1).font = { bold: true };
     const byDate = {};
     for (const d of dates) byDate[d] = { lunch: 0, dinner: 0 };
-    for (const r of rows) byDate[r.date][r.mealType]++;
+    for (const r of rows) byDate[r.date][r.mealType] += r.headcount ?? 1;
     let totalLunch = 0;
     let totalDinner = 0;
     for (const d of dates) {
@@ -307,6 +321,7 @@ router.get("/export/monthly", async (req, res) => {
       { header: "사번", key: "employeeId", width: 12 },
       { header: "이름", key: "employeeName", width: 14 },
       { header: "부서", key: "department", width: 18 },
+      { header: "인원수", key: "headcount", width: 10 },
     ];
     detail.getRow(1).font = { bold: true };
     rows
@@ -318,6 +333,7 @@ router.get("/export/monthly", async (req, res) => {
           employeeId: r.employeeId,
           employeeName: r.employeeName,
           department: r.department,
+          headcount: r.headcount ?? 1,
         });
       });
 
