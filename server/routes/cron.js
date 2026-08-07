@@ -5,7 +5,13 @@ const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const PushSubscription = require("../models/PushSubscription");
 const NotificationLog = require("../models/NotificationLog");
-const { getKSTParts, DEADLINE_HOUR, DEADLINE_MINUTE } = require("../utils/dateUtil");
+const {
+  getKSTParts,
+  LUNCH_DEADLINE_HOUR,
+  LUNCH_DEADLINE_MINUTE,
+  DINNER_DEADLINE_HOUR,
+  DINNER_DEADLINE_MINUTE,
+} = require("../utils/dateUtil");
 
 const router = express.Router();
 const REMINDER_MINUTES_BEFORE = 30; // 마감 몇 분 전에 임박 알림을 보낼지
@@ -34,12 +40,18 @@ async function sendToSubscriptions(subs, payload) {
   );
 }
 
-async function getDeadline() {
+async function getDeadline(mealType) {
   const s = await Settings.findOne({ key: "global" }).lean();
-  if (s && Number.isInteger(s.deadlineHour) && Number.isInteger(s.deadlineMinute)) {
-    return { hour: s.deadlineHour, minute: s.deadlineMinute };
+  if (mealType === "dinner") {
+    if (s && Number.isInteger(s.dinnerDeadlineHour) && Number.isInteger(s.dinnerDeadlineMinute)) {
+      return { hour: s.dinnerDeadlineHour, minute: s.dinnerDeadlineMinute };
+    }
+    return { hour: DINNER_DEADLINE_HOUR, minute: DINNER_DEADLINE_MINUTE };
   }
-  return { hour: DEADLINE_HOUR, minute: DEADLINE_MINUTE };
+  if (s && Number.isInteger(s.lunchDeadlineHour) && Number.isInteger(s.lunchDeadlineMinute)) {
+    return { hour: s.lunchDeadlineHour, minute: s.lunchDeadlineMinute };
+  }
+  return { hour: LUNCH_DEADLINE_HOUR, minute: LUNCH_DEADLINE_MINUTE };
 }
 
 // date+type 조합이 처음 기록되는 경우에만 true를 반환합니다.
@@ -69,40 +81,62 @@ router.get("/tick", async (req, res) => {
     const parts = getKSTParts(new Date());
     const today = parts.dateStr;
     const nowMinutes = parts.hour * 60 + parts.minute;
-    const deadline = await getDeadline();
-    const deadlineMinutes = deadline.hour * 60 + deadline.minute;
-    const reminderMinutes = deadlineMinutes - REMINDER_MINUTES_BEFORE;
+    const lunchDeadline = await getDeadline("lunch");
+    const dinnerDeadline = await getDeadline("dinner");
+    const lunchDeadlineMinutes = lunchDeadline.hour * 60 + lunchDeadline.minute;
+    const dinnerDeadlineMinutes = dinnerDeadline.hour * 60 + dinnerDeadline.minute;
+    const lunchReminderMinutes = lunchDeadlineMinutes - REMINDER_MINUTES_BEFORE;
+    const dinnerReminderMinutes = dinnerDeadlineMinutes - REMINDER_MINUTES_BEFORE;
 
-    const results = { reminder: "skip", dailySummary: "skip" };
+    const results = { reminderLunch: "skip", reminderDinner: "skip", dailySummary: "skip" };
 
-    // 1) 마감 임박 알림: (마감 30분 전) ~ (마감 시각) 사이 최초 1회, 아직 신청하지 않은 직원에게만 발송
-    if (nowMinutes >= reminderMinutes && nowMinutes < deadlineMinutes) {
-      if (await markSentOnce(today, "reminder")) {
+    // 1) 중식 마감 임박 알림: (중식 마감 30분 전) ~ (중식 마감 시각) 사이 최초 1회, 중식 미신청 직원에게만 발송
+    if (nowMinutes >= lunchReminderMinutes && nowMinutes < lunchDeadlineMinutes) {
+      if (await markSentOnce(today, "reminder_lunch")) {
         const employees = await Employee.find({ active: true }).lean();
-        const applied = await Reservation.find({ date: today, status: "applied" }).lean();
-        const appliedLunch = new Set(applied.filter((r) => r.mealType === "lunch").map((r) => r.employeeId));
-        const appliedDinner = new Set(applied.filter((r) => r.mealType === "dinner").map((r) => r.employeeId));
-        const pendingIds = employees
-          .filter((e) => !appliedLunch.has(e.employeeId) || !appliedDinner.has(e.employeeId))
-          .map((e) => e.employeeId);
+        const applied = await Reservation.find({ date: today, status: "applied", mealType: "lunch" }).lean();
+        const appliedLunch = new Set(applied.map((r) => r.employeeId));
+        const pendingIds = employees.filter((e) => !appliedLunch.has(e.employeeId)).map((e) => e.employeeId);
         if (pendingIds.length) {
           const subs = await PushSubscription.find({ employeeId: { $in: pendingIds } }).lean();
           await sendToSubscriptions(subs, {
-            title: "식사 신청 마감 임박",
-            body: `오늘 신청 마감이 ${REMINDER_MINUTES_BEFORE}분 남았습니다. 아직 신청하지 않으셨다면 지금 신청해주세요.`,
+            title: "중식 신청 마감 임박",
+            body: `오늘 중식 신청 마감이 ${REMINDER_MINUTES_BEFORE}분 남았습니다. 아직 신청하지 않으셨다면 지금 신청해주세요.`,
             url: "/",
           });
         }
-        results.reminder = "sent";
+        results.reminderLunch = "sent";
       }
     }
 
-    // 2) 관리자 일일 집계 알림: 마감 시각 이후 최초 1회, 관리자에게 오늘자 집계를 발송
-    if (nowMinutes >= deadlineMinutes) {
+    // 2) 석식 마감 임박 알림: (석식 마감 30분 전) ~ (석식 마감 시각) 사이 최초 1회, 석식 미신청 직원에게만 발송
+    if (nowMinutes >= dinnerReminderMinutes && nowMinutes < dinnerDeadlineMinutes) {
+      if (await markSentOnce(today, "reminder_dinner")) {
+        const employees = await Employee.find({ active: true }).lean();
+        const applied = await Reservation.find({ date: today, status: "applied", mealType: "dinner" }).lean();
+        const appliedDinner = new Set(applied.map((r) => r.employeeId));
+        const pendingIds = employees.filter((e) => !appliedDinner.has(e.employeeId)).map((e) => e.employeeId);
+        if (pendingIds.length) {
+          const subs = await PushSubscription.find({ employeeId: { $in: pendingIds } }).lean();
+          await sendToSubscriptions(subs, {
+            title: "석식 신청 마감 임박",
+            body: `오늘 석식 신청 마감이 ${REMINDER_MINUTES_BEFORE}분 남았습니다. 아직 신청하지 않으셨다면 지금 신청해주세요.`,
+            url: "/",
+          });
+        }
+        results.reminderDinner = "sent";
+      }
+    }
+
+    // 3) 관리자 일일 집계 알림: 중식/석식 마감시간이 서로 다르므로, 더 늦은 마감시간이 지난 이후
+    //    최초 1회 관리자에게 오늘자 최종 집계를 발송합니다.
+    const finalDeadlineMinutes = Math.max(lunchDeadlineMinutes, dinnerDeadlineMinutes);
+    if (nowMinutes >= finalDeadlineMinutes) {
       if (await markSentOnce(today, "dailySummary")) {
         const applied = await Reservation.find({ date: today, status: "applied" }).lean();
-        const lunchCount = applied.filter((r) => r.mealType === "lunch").length;
-        const dinnerCount = applied.filter((r) => r.mealType === "dinner").length;
+        const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
+        const lunchCount = sumHeadcount(applied.filter((r) => r.mealType === "lunch"));
+        const dinnerCount = sumHeadcount(applied.filter((r) => r.mealType === "dinner"));
         const adminSubs = await PushSubscription.find({ role: "admin" }).lean();
         await sendToSubscriptions(adminSubs, {
           title: `${today} 식사 신청 집계`,

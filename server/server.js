@@ -56,8 +56,10 @@ async function bootstrapSettings() {
   if (!existing) {
     await Settings.create({
       key: "global",
-      deadlineHour: parseInt(process.env.APPLY_DEADLINE_HOUR || "9", 10),
-      deadlineMinute: parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10),
+      lunchDeadlineHour: parseInt(process.env.LUNCH_APPLY_DEADLINE_HOUR || process.env.APPLY_DEADLINE_HOUR || "9", 10),
+      lunchDeadlineMinute: parseInt(process.env.LUNCH_APPLY_DEADLINE_MINUTE || process.env.APPLY_DEADLINE_MINUTE || "30", 10),
+      dinnerDeadlineHour: parseInt(process.env.DINNER_APPLY_DEADLINE_HOUR || "14", 10),
+      dinnerDeadlineMinute: parseInt(process.env.DINNER_APPLY_DEADLINE_MINUTE || "0", 10),
     });
   }
 }

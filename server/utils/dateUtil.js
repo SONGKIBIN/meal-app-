@@ -74,17 +74,24 @@ function getMonthDates(year, month) {
   return dates;
 }
 
-const DEADLINE_HOUR = parseInt(process.env.APPLY_DEADLINE_HOUR || "9", 10);
-const DEADLINE_MINUTE = parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10);
+// 중식/석식은 마감시간이 서로 다를 수 있습니다 (예: 중식 09:30, 석식 14:00).
+// 환경변수가 없으면 중식은 기존 기본값(09:30), 석식은 14:00을 기본값으로 사용합니다.
+const LUNCH_DEADLINE_HOUR = parseInt(process.env.LUNCH_APPLY_DEADLINE_HOUR || process.env.APPLY_DEADLINE_HOUR || "9", 10);
+const LUNCH_DEADLINE_MINUTE = parseInt(process.env.LUNCH_APPLY_DEADLINE_MINUTE || process.env.APPLY_DEADLINE_MINUTE || "30", 10);
+const DINNER_DEADLINE_HOUR = parseInt(process.env.DINNER_APPLY_DEADLINE_HOUR || "14", 10);
+const DINNER_DEADLINE_MINUTE = parseInt(process.env.DINNER_APPLY_DEADLINE_MINUTE || "0", 10);
+// 이전 버전과의 호환을 위해 유지 (기본값은 중식 마감시각과 동일)
+const DEADLINE_HOUR = LUNCH_DEADLINE_HOUR;
+const DEADLINE_MINUTE = LUNCH_DEADLINE_MINUTE;
 
 /**
  * 신청 가능 여부: 오늘보다 미래 날짜는 항상 가능,
- * 오늘 날짜는 마감시각(기본 09:30, 관리자가 설정에서 변경 가능) 이전까지만 가능, 과거 날짜는 불가능.
- * deadline: { hour, minute } - 생략 시 환경변수 기본값 사용
+ * 오늘 날짜는 마감시각(중식/석식 각각 다르게 설정 가능, 관리자가 설정에서 변경 가능) 이전까지만 가능, 과거 날짜는 불가능.
+ * deadline: { hour, minute } - 생략 시 중식 기본값 사용 (호출하는 쪽에서 끼니별 마감시각을 넘겨주세요)
  */
 function isApplyAllowed(dateStr, now = new Date(), deadline = {}) {
-  const hour = Number.isInteger(deadline.hour) ? deadline.hour : DEADLINE_HOUR;
-  const minute = Number.isInteger(deadline.minute) ? deadline.minute : DEADLINE_MINUTE;
+  const hour = Number.isInteger(deadline.hour) ? deadline.hour : LUNCH_DEADLINE_HOUR;
+  const minute = Number.isInteger(deadline.minute) ? deadline.minute : LUNCH_DEADLINE_MINUTE;
   const today = todayKSTStr();
   if (dateStr > today) return true;
   if (dateStr < today) return false;
@@ -114,4 +121,8 @@ module.exports = {
   isCancelAllowed,
   DEADLINE_HOUR,
   DEADLINE_MINUTE,
+  LUNCH_DEADLINE_HOUR,
+  LUNCH_DEADLINE_MINUTE,
+  DINNER_DEADLINE_HOUR,
+  DINNER_DEADLINE_MINUTE,
 };

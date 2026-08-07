@@ -8,7 +8,14 @@ const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const Announcement = require("../models/Announcement");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
-const { getMonthDates, todayKSTStr, DEADLINE_HOUR, DEADLINE_MINUTE } = require("../utils/dateUtil");
+const {
+  getMonthDates,
+  todayKSTStr,
+  LUNCH_DEADLINE_HOUR,
+  LUNCH_DEADLINE_MINUTE,
+  DINNER_DEADLINE_HOUR,
+  DINNER_DEADLINE_MINUTE,
+} = require("../utils/dateUtil");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -24,12 +31,20 @@ router.get("/employees", async (req, res) => {
   res.json({ employees: list });
 });
 
+// totalHeadcount(TO)는 도급회사(단체) 계정에만 의미가 있습니다. 개인 직원이거나 값이 없으면 null로 저장합니다.
+function parseTotalHeadcount(raw, employeeType) {
+  if (employeeType !== "contractor") return null;
+  const n = parseInt(raw, 10);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 router.post("/employees", async (req, res) => {
   try {
-    const { employeeId, name, department, role, employeeType } = req.body;
+    const { employeeId, name, department, role, employeeType, totalHeadcount } = req.body;
     if (!employeeId || !name) {
       return res.status(400).json({ error: "사번과 이름은 필수입니다." });
     }
+    const type = employeeType === "contractor" ? "contractor" : "individual";
     const emp = await Employee.findOneAndUpdate(
       { employeeId: String(employeeId).trim() },
       {
@@ -38,7 +53,8 @@ router.post("/employees", async (req, res) => {
           name: String(name).trim(),
           department: department ? String(department).trim() : "",
           role: role === "admin" ? "admin" : "user",
-          employeeType: employeeType === "contractor" ? "contractor" : "individual",
+          employeeType: type,
+          totalHeadcount: parseTotalHeadcount(totalHeadcount, type),
           active: true,
         },
       },
@@ -53,13 +69,16 @@ router.post("/employees", async (req, res) => {
 
 router.put("/employees/:id", async (req, res) => {
   try {
-    const { name, department, role, active, employeeType } = req.body;
+    const { name, department, role, active, employeeType, totalHeadcount } = req.body;
     const update = {};
     if (name !== undefined) update.name = String(name).trim();
     if (department !== undefined) update.department = String(department).trim();
     if (role !== undefined) update.role = role === "admin" ? "admin" : "user";
     if (active !== undefined) update.active = !!active;
-    if (employeeType !== undefined) update.employeeType = employeeType === "contractor" ? "contractor" : "individual";
+    if (employeeType !== undefined) {
+      update.employeeType = employeeType === "contractor" ? "contractor" : "individual";
+      update.totalHeadcount = parseTotalHeadcount(totalHeadcount, update.employeeType);
+    }
     const emp = await Employee.findByIdAndUpdate(req.params.id, { $set: update }, { new: true });
     if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
     res.json({ employee: emp });
@@ -90,9 +109,10 @@ router.get("/employees/import-template", async (req, res) => {
     { header: "이름", key: "name", width: 15 },
     { header: "부서", key: "department", width: 20 },
     { header: "구분(개인/도급)", key: "employeeType", width: 16 },
+    { header: "총원(TO, 도급만)", key: "totalHeadcount", width: 16 },
   ];
-  ws.addRow({ employeeId: "10001", name: "홍길동", department: "생산1팀", employeeType: "개인" });
-  ws.addRow({ employeeId: "20001", name: "OO건설(도급)", department: "협력업체", employeeType: "도급" });
+  ws.addRow({ employeeId: "10001", name: "홍길동", department: "생산1팀", employeeType: "개인", totalHeadcount: "" });
+  ws.addRow({ employeeId: "20001", name: "OO건설(도급)", department: "협력업체", employeeType: "도급", totalHeadcount: 30 });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   res.setHeader("Content-Disposition", "attachment; filename=employee_template.xlsx");
   await wb.xlsx.write(res);
@@ -117,6 +137,10 @@ router.post("/employees/import", upload.single("file"), async (req, res) => {
       const department = String(row["부서"] ?? row["department"] ?? "").trim();
       const typeRaw = String(row["구분(개인/도급)"] ?? row["구분"] ?? row["employeeType"] ?? "").trim();
       const employeeType = typeRaw.includes("도급") || typeRaw.toLowerCase() === "contractor" ? "contractor" : "individual";
+      const totalHeadcount = parseTotalHeadcount(
+        row["총원(TO, 도급만)"] ?? row["총원(TO)"] ?? row["totalHeadcount"],
+        employeeType
+      );
       if (!employeeId || !name) {
         errors.push(`${idx + 2}행: 사번 또는 이름이 비어있어 건너뛰었습니다.`);
         continue;
@@ -126,11 +150,12 @@ router.post("/employees/import", upload.single("file"), async (req, res) => {
         existing.name = name;
         existing.department = department;
         existing.employeeType = employeeType;
+        existing.totalHeadcount = totalHeadcount;
         existing.active = true;
         await existing.save();
         updated++;
       } else {
-        await Employee.create({ employeeId, name, department, role: "user", employeeType, active: true });
+        await Employee.create({ employeeId, name, department, role: "user", employeeType, totalHeadcount, active: true });
         created++;
       }
     }
@@ -155,17 +180,57 @@ router.get("/reservations", async (req, res) => {
   res.json({ date, lunch, dinner, lunchCount: sumHeadcount(lunch), dinnerCount: sumHeadcount(dinner) });
 });
 
+// 특정 날짜의 "미신청 인원"을 계산합니다.
+// - 개인 직원: 해당 끼니에 신청 기록이 없으면 1명으로 계산합니다.
+// - 도급회사(단체) 직원: 총원(TO)이 설정되어 있으면 (TO - 신청 인원수)만큼을 미신청 인원으로 계산합니다.
+//   TO가 설정되지 않은 도급 계정은 개인 직원과 동일하게(신청 안 하면 1명) 계산합니다.
+async function computePendingSummary(date) {
+  const employees = await Employee.find({ active: true }).sort({ department: 1, name: 1 }).lean();
+  const applied = await Reservation.find({ date, status: "applied" }).lean();
+  const appliedLunchMap = new Map();
+  const appliedDinnerMap = new Map();
+  for (const r of applied) {
+    const map = r.mealType === "lunch" ? appliedLunchMap : appliedDinnerMap;
+    map.set(r.employeeId, r.headcount ?? 1);
+  }
+
+  function build(map) {
+    const list = [];
+    let count = 0;
+    for (const e of employees) {
+      const appliedHeadcount = map.get(e.employeeId);
+      if (e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) && e.totalHeadcount > 0) {
+        const applied = appliedHeadcount ?? 0;
+        const shortfall = e.totalHeadcount - applied;
+        if (shortfall > 0) {
+          list.push({ ...e, appliedHeadcount: applied, shortfall });
+          count += shortfall;
+        }
+      } else if (appliedHeadcount === undefined) {
+        list.push({ ...e, appliedHeadcount: 0, shortfall: 1 });
+        count += 1;
+      }
+    }
+    return { list, count };
+  }
+
+  const lunch = build(appliedLunchMap);
+  const dinner = build(appliedDinnerMap);
+  return {
+    totalEmployees: employees.length,
+    pendingLunch: lunch.list,
+    pendingDinner: dinner.list,
+    pendingLunchCount: lunch.count,
+    pendingDinnerCount: dinner.count,
+  };
+}
+
 // 특정 날짜에 아직 신청하지 않은 재직 직원 목록 (중식/석식 각각)
 router.get("/reservations/pending", async (req, res) => {
   const { date } = req.query;
   if (!DATE_RE.test(date || "")) return res.status(400).json({ error: "date 파라미터가 필요합니다 (YYYY-MM-DD)." });
-  const employees = await Employee.find({ active: true }).sort({ department: 1, name: 1 }).lean();
-  const applied = await Reservation.find({ date, status: "applied" }).lean();
-  const appliedLunchIds = new Set(applied.filter((r) => r.mealType === "lunch").map((r) => r.employeeId));
-  const appliedDinnerIds = new Set(applied.filter((r) => r.mealType === "dinner").map((r) => r.employeeId));
-  const pendingLunch = employees.filter((e) => !appliedLunchIds.has(e.employeeId));
-  const pendingDinner = employees.filter((e) => !appliedDinnerIds.has(e.employeeId));
-  res.json({ date, totalEmployees: employees.length, pendingLunch, pendingDinner });
+  const summary = await computePendingSummary(date);
+  res.json({ date, ...summary });
 });
 
 // 관리자 강제 변경 (마감시간/당일취소 제한을 무시하고 신청 또는 취소 처리)
@@ -208,10 +273,13 @@ router.get("/summary/daily", async (req, res) => {
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
   const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
+  const pending = await computePendingSummary(date);
   res.json({
     date,
     lunchCount: sumHeadcount(lunch),
     dinnerCount: sumHeadcount(dinner),
+    pendingLunchCount: pending.pendingLunchCount,
+    pendingDinnerCount: pending.pendingDinnerCount,
     lunch,
     dinner,
   });
@@ -352,20 +420,37 @@ router.get("/export/monthly", async (req, res) => {
 router.get("/settings", async (req, res) => {
   let s = await Settings.findOne({ key: "global" });
   if (!s) {
-    s = await Settings.create({ key: "global", deadlineHour: DEADLINE_HOUR, deadlineMinute: DEADLINE_MINUTE });
+    s = await Settings.create({
+      key: "global",
+      lunchDeadlineHour: LUNCH_DEADLINE_HOUR,
+      lunchDeadlineMinute: LUNCH_DEADLINE_MINUTE,
+      dinnerDeadlineHour: DINNER_DEADLINE_HOUR,
+      dinnerDeadlineMinute: DINNER_DEADLINE_MINUTE,
+    });
   }
   res.json({ settings: s });
 });
 
 router.put("/settings", async (req, res) => {
-  const hour = parseInt(req.body.deadlineHour, 10);
-  const minute = parseInt(req.body.deadlineMinute, 10);
-  if (Number.isNaN(hour) || hour < 0 || hour > 23 || Number.isNaN(minute) || minute < 0 || minute > 59) {
-    return res.status(400).json({ error: "올바른 시(0~23)와 분(0~59)을 입력해주세요." });
+  const lunchHour = parseInt(req.body.lunchDeadlineHour, 10);
+  const lunchMinute = parseInt(req.body.lunchDeadlineMinute, 10);
+  const dinnerHour = parseInt(req.body.dinnerDeadlineHour, 10);
+  const dinnerMinute = parseInt(req.body.dinnerDeadlineMinute, 10);
+  const validHour = (h) => Number.isInteger(h) && h >= 0 && h <= 23;
+  const validMinute = (m) => Number.isInteger(m) && m >= 0 && m <= 59;
+  if (!validHour(lunchHour) || !validMinute(lunchMinute) || !validHour(dinnerHour) || !validMinute(dinnerMinute)) {
+    return res.status(400).json({ error: "올바른 시(0~23)와 분(0~59)을 중식/석식 모두 입력해주세요." });
   }
   const s = await Settings.findOneAndUpdate(
     { key: "global" },
-    { $set: { deadlineHour: hour, deadlineMinute: minute } },
+    {
+      $set: {
+        lunchDeadlineHour: lunchHour,
+        lunchDeadlineMinute: lunchMinute,
+        dinnerDeadlineHour: dinnerHour,
+        dinnerDeadlineMinute: dinnerMinute,
+      },
+    },
     { upsert: true, new: true }
   );
   res.json({ settings: s });
@@ -391,6 +476,13 @@ router.put("/announcements/:id/deactivate", async (req, res) => {
   const a = await Announcement.findByIdAndUpdate(req.params.id, { $set: { active: false } }, { new: true });
   if (!a) return res.status(404).json({ error: "공지를 찾을 수 없습니다." });
   res.json({ announcement: a });
+});
+
+// 공지 게시글을 완전히 삭제합니다 (종료와 달리 목록에서도 사라집니다).
+router.delete("/announcements/:id", async (req, res) => {
+  const a = await Announcement.findByIdAndDelete(req.params.id);
+  if (!a) return res.status(404).json({ error: "공지를 찾을 수 없습니다." });
+  res.json({ ok: true });
 });
 
 /* ---------------------------- 데이터 백업 ---------------------------- */

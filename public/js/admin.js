@@ -166,21 +166,22 @@ const AdminUI = {
           <td>${escapeHtml(e.employeeId)}</td>
           <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
           <td>${escapeHtml(e.department)}</td>
+          <td>${e.shortfall}${e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) ? ` <span class="deadline-note" style="display:inline;">(${t("appliedOfTotal", e.appliedHeadcount, e.totalHeadcount)})</span>` : ""}</td>
         </tr>`).join("");
       el.innerHTML = `
         <div class="summary-cards">
-          <div class="stat"><div class="num">${data.pendingLunch.length}</div><div class="lbl">${t("pendingLunch")}</div></div>
-          <div class="stat"><div class="num">${data.pendingDinner.length}</div><div class="lbl">${t("pendingDinner")}</div></div>
+          <div class="stat"><div class="num">${data.pendingLunchCount}</div><div class="lbl">${t("pendingLunch")}</div></div>
+          <div class="stat"><div class="num">${data.pendingDinnerCount}</div><div class="lbl">${t("pendingDinner")}</div></div>
         </div>
         <h3>${t("pendingLunch")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th></tr></thead>
-          <tbody>${rowsHtml(data.pendingLunch) || `<tr><td colspan="3">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
+          <tbody>${rowsHtml(data.pendingLunch) || `<tr><td colspan="4">${t("noData")}</td></tr>`}</tbody>
         </table></div>
         <h3>${t("pendingDinner")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th></tr></thead>
-          <tbody>${rowsHtml(data.pendingDinner) || `<tr><td colspan="3">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
+          <tbody>${rowsHtml(data.pendingDinner) || `<tr><td colspan="4">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
     } catch (err) {
@@ -249,6 +250,8 @@ const AdminUI = {
         <div class="summary-cards">
           <div class="stat"><div class="num">${data.lunchCount}</div><div class="lbl">${t("lunchCount")}</div></div>
           <div class="stat"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinnerCount")}</div></div>
+          <div class="stat"><div class="num">${data.pendingLunchCount}</div><div class="lbl">${t("pendingLunch")}</div></div>
+          <div class="stat"><div class="num">${data.pendingDinnerCount}</div><div class="lbl">${t("pendingDinner")}</div></div>
         </div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("mealType")}</th><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
@@ -365,7 +368,7 @@ const AdminUI = {
           <td>${escapeHtml(e.employeeId)}</td>
           <td>${escapeHtml(e.name)}</td>
           <td>${escapeHtml(e.department)}</td>
-          <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>` : t("individualType")}</td>
+          <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>${Number.isInteger(e.totalHeadcount) ? ` TO ${e.totalHeadcount}` : ""}` : t("individualType")}</td>
           <td>${e.role === "admin" ? t("admin") : t("user")}</td>
           <td>${e.active ? t("active") : t("inactive")}</td>
           <td>
@@ -397,21 +400,30 @@ const AdminUI = {
           <option value="contractor" ${emp && emp.employeeType === "contractor" ? "selected" : ""}>${t("contractorType")}</option>
         </select>
       </div>
+      <div class="field" id="mTotalHeadcountField" style="${emp && emp.employeeType === "contractor" ? "" : "display:none;"}">
+        <label>${t("totalHeadcount")}</label>
+        <input id="mTotalHeadcount" type="number" min="0" placeholder="${t("totalHeadcountPlaceholder")}" value="${emp && Number.isInteger(emp.totalHeadcount) ? emp.totalHeadcount : ""}">
+        <div class="login-help">${t("totalHeadcountHelp")}</div>
+      </div>
       <div class="toolbar" style="margin-top:14px;">
         <button id="mSaveBtn">${t("save")}</button>
         <button class="secondary" id="mCloseBtn">${t("close")}</button>
       </div>
     `);
     document.getElementById("mCloseBtn").addEventListener("click", closeModal);
+    document.getElementById("mEmployeeType").addEventListener("change", (e) => {
+      document.getElementById("mTotalHeadcountField").style.display = e.target.value === "contractor" ? "" : "none";
+    });
     document.getElementById("mSaveBtn").addEventListener("click", async () => {
       const employeeId = document.getElementById("mEmpId").value.trim();
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
       const role = document.getElementById("mRole").value;
       const employeeType = document.getElementById("mEmployeeType").value;
+      const totalHeadcount = document.getElementById("mTotalHeadcount").value.trim();
       try {
-        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, employeeType });
-        else await API.post("/admin/employees", { employeeId, name, department, role, employeeType });
+        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, employeeType, totalHeadcount });
+        else await API.post("/admin/employees", { employeeId, name, department, role, employeeType, totalHeadcount });
         closeModal();
         showToast(t("save"));
         this.loadEmployees();
@@ -539,11 +551,22 @@ const AdminUI = {
     container.innerHTML = `
       <div class="card">
         <h2>${t("deadlineSettings")}</h2>
+        <p class="deadline-note">${t("deadlineSettingsHelp")}</p>
         <div class="toolbar">
+          <label style="min-width:60px;">${t("lunch")}</label>
+          <input type="number" id="lunchDeadlineHourInput" min="0" max="23" style="width:70px;">
           <label>${t("deadlineHourLabel")}</label>
-          <input type="number" id="deadlineHourInput" min="0" max="23" style="width:70px;">
+          <input type="number" id="lunchDeadlineMinuteInput" min="0" max="59" style="width:70px;">
           <label>${t("deadlineMinuteLabel")}</label>
-          <input type="number" id="deadlineMinuteInput" min="0" max="59" style="width:70px;">
+        </div>
+        <div class="toolbar">
+          <label style="min-width:60px;">${t("dinner")}</label>
+          <input type="number" id="dinnerDeadlineHourInput" min="0" max="23" style="width:70px;">
+          <label>${t("deadlineHourLabel")}</label>
+          <input type="number" id="dinnerDeadlineMinuteInput" min="0" max="59" style="width:70px;">
+          <label>${t("deadlineMinuteLabel")}</label>
+        </div>
+        <div class="toolbar">
           <button id="saveDeadlineBtn">${t("saveSettings")}</button>
         </div>
       </div>
@@ -570,18 +593,22 @@ const AdminUI = {
   async loadDeadline() {
     try {
       const data = await API.get("/admin/settings");
-      document.getElementById("deadlineHourInput").value = data.settings.deadlineHour;
-      document.getElementById("deadlineMinuteInput").value = data.settings.deadlineMinute;
+      document.getElementById("lunchDeadlineHourInput").value = data.settings.lunchDeadlineHour;
+      document.getElementById("lunchDeadlineMinuteInput").value = data.settings.lunchDeadlineMinute;
+      document.getElementById("dinnerDeadlineHourInput").value = data.settings.dinnerDeadlineHour;
+      document.getElementById("dinnerDeadlineMinuteInput").value = data.settings.dinnerDeadlineMinute;
     } catch (err) {
       alert(err.message);
     }
   },
 
   async saveDeadline() {
-    const deadlineHour = document.getElementById("deadlineHourInput").value;
-    const deadlineMinute = document.getElementById("deadlineMinuteInput").value;
+    const lunchDeadlineHour = document.getElementById("lunchDeadlineHourInput").value;
+    const lunchDeadlineMinute = document.getElementById("lunchDeadlineMinuteInput").value;
+    const dinnerDeadlineHour = document.getElementById("dinnerDeadlineHourInput").value;
+    const dinnerDeadlineMinute = document.getElementById("dinnerDeadlineMinuteInput").value;
     try {
-      await API.put("/admin/settings", { deadlineHour, deadlineMinute });
+      await API.put("/admin/settings", { lunchDeadlineHour, lunchDeadlineMinute, dinnerDeadlineHour, dinnerDeadlineMinute });
       showToast(t("settingsSaved"));
     } catch (err) {
       alert(err.message);
@@ -600,12 +627,16 @@ const AdminUI = {
                 <td>${new Date(a.createdAt).toLocaleString()}</td>
                 <td style="text-align:left;">${escapeHtml(a.message)}</td>
                 <td>${a.active ? "O" : ""}</td>
-                <td>${a.active ? `<button class="danger" data-end="${a._id}">${t("endAnnouncement")}</button>` : ""}</td>
+                <td>
+                  ${a.active ? `<button class="danger" data-end="${a._id}">${t("endAnnouncement")}</button>` : ""}
+                  <button class="danger" data-del-announce="${a._id}">${t("deleteAnnouncement")}</button>
+                </td>
               </tr>
             `).join("")}</tbody>
           </table></div>`
         : `<p class="deadline-note">${t("noAnnouncement")}</p>`;
       el.querySelectorAll("[data-end]").forEach((b) => b.addEventListener("click", () => this.endAnnouncement(b.dataset.end)));
+      el.querySelectorAll("[data-del-announce]").forEach((b) => b.addEventListener("click", () => this.deleteAnnouncement(b.dataset.delAnnounce)));
     } catch (err) {
       el.textContent = err.message;
     }
@@ -628,6 +659,17 @@ const AdminUI = {
     if (!confirm(t("confirmEndAnnouncement"))) return;
     try {
       await API.put(`/admin/announcements/${id}/deactivate`, {});
+      this.loadAnnouncements();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async deleteAnnouncement(id) {
+    if (!confirm(t("confirmDeleteAnnouncement"))) return;
+    try {
+      await API.del(`/admin/announcements/${id}`);
+      showToast(t("announcementDeleted"));
       this.loadAnnouncements();
     } catch (err) {
       alert(err.message);

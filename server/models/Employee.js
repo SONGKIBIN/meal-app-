@@ -9,6 +9,9 @@ const employeeSchema = new mongoose.Schema(
     active: { type: Boolean, default: true }, // 재직 여부 (퇴사자는 false)
     // individual = 개인 직원(1명씩 신청), contractor = 도급회사 등 단체 계정(인원수를 숫자로 입력해 일괄 신청)
     employeeType: { type: String, enum: ["individual", "contractor"], default: "individual" },
+    // 도급회사(단체) 계정의 총 인원(TO). 설정해두면 신청 인원을 뺀 나머지를 "미신청 인원"으로 계산합니다.
+    // 개인 직원에게는 사용하지 않습니다 (null).
+    totalHeadcount: { type: Number, default: null, min: 0 },
   },
   { timestamps: true }
 );

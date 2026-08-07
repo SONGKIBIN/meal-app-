@@ -110,7 +110,13 @@ async function loadWeek(anchorDate) {
     const data = await API.get(`/reservations/week?date=${anchorDate}`);
     currentWeekAnchor = anchorDate;
     document.getElementById("weekLabel").textContent = weekLabelText(data.week);
-    document.getElementById("deadlineNote").textContent = t("deadlineNotice", data.deadline.hour, data.deadline.minute);
+    document.getElementById("deadlineNote").textContent = t(
+      "deadlineNotice",
+      data.deadline.lunch.hour,
+      data.deadline.lunch.minute,
+      data.deadline.dinner.hour,
+      data.deadline.dinner.minute
+    );
     renderWeekGrid(data.days);
     checkTodayReminder(data.days);
   } catch (err) {
