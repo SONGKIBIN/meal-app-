@@ -413,9 +413,10 @@ const AdminUI = {
   },
 
   // 개인 인원 / 도급사 총원(TO 합계) / 합계를 계산해 요약 카드로 표시합니다 (재직 중인 직원 기준).
-  // 관리자(role=admin) 계정은 이 시스템으로 직접 식사를 신청하지 않으므로 인원 집계에서 제외합니다.
+  // 마스터 관리자 계정(시스템 최초 설치 시 자동 생성된 계정)만 인원 집계에서 제외합니다.
+  // 다른 직원에게 부여된 관리자 권한(role=admin)은 일반 직원과 동일하게 인원에 포함됩니다.
   computeEmployeeSummary() {
-    const activeList = this.employeesCache.filter((e) => e.active && e.role !== "admin");
+    const activeList = this.employeesCache.filter((e) => e.active && !e.isMasterAdmin);
     const individualCount = activeList.filter((e) => e.employeeType !== "contractor").length;
     const contractorTotalCount = activeList
       .filter((e) => e.employeeType === "contractor")

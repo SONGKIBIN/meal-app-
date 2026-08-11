@@ -22,13 +22,19 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
+// 시스템 최초 설치 시 자동 생성되는 "마스터 관리자" 계정의 사번입니다 (server.js의 bootstrapAdmin과 동일 기준).
+// 직원 관리에서 다른 직원에게 관리자 권한(role=admin)을 부여해도, 그 직원은 이 사번과 다르므로
+// 마스터 관리자로 취급되지 않고 일반 직원과 동일하게 인원 집계/식사 신청에 포함됩니다.
+const MASTER_ADMIN_ID = process.env.ADMIN_EMPLOYEE_ID || "admin";
+
 router.use(requireAuth, requireAdmin);
 
 /* ---------------------------- 직원 관리 ---------------------------- */
 
 router.get("/employees", async (req, res) => {
   const list = await Employee.find({}).sort({ department: 1, name: 1 }).lean();
-  res.json({ employees: list });
+  const withFlag = list.map((e) => ({ ...e, isMasterAdmin: e.employeeId === MASTER_ADMIN_ID }));
+  res.json({ employees: withFlag });
 });
 
 // totalHeadcount(TO)는 도급회사(단체) 계정에만 의미가 있습니다. 개인 직원이거나 값이 없으면 null로 저장합니다.
@@ -236,10 +242,11 @@ router.get("/reservations", async (req, res) => {
 // - 개인 직원: 해당 끼니에 신청 기록이 없으면 1명으로 계산합니다.
 // - 도급회사(단체) 직원: 총원(TO)이 설정되어 있으면 (TO - 신청 인원수)만큼을 미신청 인원으로 계산합니다.
 //   TO가 설정되지 않은 도급 계정은 개인 직원과 동일하게(신청 안 하면 1명) 계산합니다.
-// 관리자(role=admin) 계정은 이 시스템으로 직접 식사를 신청하지 않으므로,
-// 등록 인원/미신청 인원 집계에서 항상 제외합니다.
+// 마스터 관리자 계정(MASTER_ADMIN_ID)만 이 시스템으로 직접 식사를 신청하지 않으므로,
+// 등록 인원/미신청 인원 집계에서 그 계정만 제외합니다. 다른 직원에게 부여된 관리자 권한(role=admin)은
+// 일반 직원과 동일하게 인원 집계와 식사 신청에 포함됩니다.
 async function computePendingSummary(date) {
-  const employees = await Employee.find({ active: true, role: { $ne: "admin" } }).sort({ department: 1, name: 1 }).lean();
+  const employees = await Employee.find({ active: true, employeeId: { $ne: MASTER_ADMIN_ID } }).sort({ department: 1, name: 1 }).lean();
   const applied = await Reservation.find({ date, status: "applied" }).lean();
   const appliedLunchMap = new Map();
   const appliedDinnerMap = new Map();

@@ -56,13 +56,15 @@ function showAppView() {
     `${displayName} (${escapeHtml(user.employeeId)})` +
     (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
   const isAdmin = user.role === "admin";
+  // 마스터 관리자 계정(시스템 최초 설치 시 자동 생성된 계정)만 "내 식사 신청" 메뉴를 숨기고 관리자 화면만 보여줍니다.
+  // 다른 직원에게 나중에 관리자 권한을 부여한 경우에는 예전처럼 관리자 화면과 식사 신청 화면을 모두 사용할 수 있습니다.
+  const isMasterAdmin = !!user.isMasterAdmin;
   document.getElementById("tabAdmin").classList.toggle("hidden", !isAdmin);
-  // 관리자 계정은 이 시스템으로 직접 식사를 신청하지 않으므로, "내 식사 신청" 메뉴를 숨기고 관리자 화면만 보여줍니다.
-  document.getElementById("tabMy").classList.toggle("hidden", isAdmin);
-  if (!isAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
+  document.getElementById("tabMy").classList.toggle("hidden", isMasterAdmin);
+  if (!isMasterAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
   }
-  switchMainTab(isAdmin ? "admin" : "my");
+  switchMainTab(isMasterAdmin ? "admin" : "my");
   checkAnnouncement();
 }
 
