@@ -48,16 +48,21 @@ function showAppView() {
   document.getElementById("topbar").classList.remove("hidden");
   const user = API.getUser();
   const isContractor = user.employeeType === "contractor";
-  const nameLabel = isContractor ? `${t("companyName")}: ` : "";
+  // 도급(단체) 계정은 "도급" 표시 대신 부서명 + 이름으로 보여줍니다 (예: 협력업체 OO건설).
+  const displayName = isContractor && user.department
+    ? `${escapeHtml(user.department)} ${escapeHtml(user.name)}`
+    : escapeHtml(user.name);
   document.getElementById("userBadge").innerHTML =
-    `${nameLabel}${escapeHtml(user.name)} (${escapeHtml(user.employeeId)})` +
-    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "") +
-    (isContractor ? ` <span class="badge admin">${t("contractorBadge")}</span>` : "");
-  document.getElementById("tabAdmin").classList.toggle("hidden", user.role !== "admin");
-  if ("Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
+    `${displayName} (${escapeHtml(user.employeeId)})` +
+    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
+  const isAdmin = user.role === "admin";
+  document.getElementById("tabAdmin").classList.toggle("hidden", !isAdmin);
+  // 관리자 계정은 이 시스템으로 직접 식사를 신청하지 않으므로, "내 식사 신청" 메뉴를 숨기고 관리자 화면만 보여줍니다.
+  document.getElementById("tabMy").classList.toggle("hidden", isAdmin);
+  if (!isAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
   }
-  switchMainTab("my");
+  switchMainTab(isAdmin ? "admin" : "my");
   checkAnnouncement();
 }
 
@@ -145,8 +150,9 @@ function renderContractorToCard(contractor) {
   const pendingNotice = Number.isInteger(contractor.requestedHeadcount)
     ? `<p class="deadline-note">${escapeHtml(t("requestHeadcountPendingNotice", contractor.requestedHeadcount))}</p>`
     : "";
+  const cardTitle = user.department ? `${escapeHtml(user.department)} ${escapeHtml(user.name)}` : escapeHtml(user.name);
   card.innerHTML = `
-    <h3 style="margin:0 0 8px;">${escapeHtml(t("companyName"))}: ${escapeHtml(user.name)}</h3>
+    <h3 style="margin:0 0 8px;">${cardTitle}</h3>
     <div class="summary-cards">
       <div class="stat"><div class="num">${total !== null ? total : "-"}</div><div class="lbl">${t("totalHeadcount")}</div></div>
     </div>

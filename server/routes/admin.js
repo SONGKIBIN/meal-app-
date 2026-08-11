@@ -236,8 +236,10 @@ router.get("/reservations", async (req, res) => {
 // - 개인 직원: 해당 끼니에 신청 기록이 없으면 1명으로 계산합니다.
 // - 도급회사(단체) 직원: 총원(TO)이 설정되어 있으면 (TO - 신청 인원수)만큼을 미신청 인원으로 계산합니다.
 //   TO가 설정되지 않은 도급 계정은 개인 직원과 동일하게(신청 안 하면 1명) 계산합니다.
+// 관리자(role=admin) 계정은 이 시스템으로 직접 식사를 신청하지 않으므로,
+// 등록 인원/미신청 인원 집계에서 항상 제외합니다.
 async function computePendingSummary(date) {
-  const employees = await Employee.find({ active: true }).sort({ department: 1, name: 1 }).lean();
+  const employees = await Employee.find({ active: true, role: { $ne: "admin" } }).sort({ department: 1, name: 1 }).lean();
   const applied = await Reservation.find({ date, status: "applied" }).lean();
   const appliedLunchMap = new Map();
   const appliedDinnerMap = new Map();
@@ -318,20 +320,46 @@ router.put("/reservations/override", async (req, res) => {
 
 /* ---------------------------- 집계 ---------------------------- */
 
+// 신청 내역(rows)을 개인 직원 / 도급직원으로 나누어 인원수를 합산합니다.
+// Reservation에는 구분(employeeType)이 저장되어 있지 않아 Employee 컬렉션을 조회해 판별하며,
+// 이미 삭제되었거나 찾을 수 없는 사번은 개인 직원으로 취급합니다(합계는 항상 원래 총합과 같습니다).
+async function splitByEmployeeType(rows) {
+  const ids = [...new Set(rows.map((r) => r.employeeId))];
+  const emps = ids.length ? await Employee.find({ employeeId: { $in: ids } }, { employeeId: 1, employeeType: 1 }).lean() : [];
+  const typeMap = new Map(emps.map((e) => [e.employeeId, e.employeeType]));
+  let individual = 0;
+  let contractor = 0;
+  for (const r of rows) {
+    const hc = r.headcount ?? 1;
+    if (typeMap.get(r.employeeId) === "contractor") contractor += hc;
+    else individual += hc;
+  }
+  return { individual, contractor, total: individual + contractor };
+}
+
 router.get("/summary/daily", async (req, res) => {
   const { date } = req.query;
   if (!DATE_RE.test(date || "")) return res.status(400).json({ error: "date 파라미터가 필요합니다 (YYYY-MM-DD)." });
   const rows = await Reservation.find({ date, status: "applied" }).lean();
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
-  const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
-  const pending = await computePendingSummary(date);
+  const [lunchSplit, dinnerSplit, pending] = await Promise.all([
+    splitByEmployeeType(lunch),
+    splitByEmployeeType(dinner),
+    computePendingSummary(date),
+  ]);
   res.json({
     date,
-    lunchCount: sumHeadcount(lunch),
-    dinnerCount: sumHeadcount(dinner),
+    lunchCount: lunchSplit.total,
+    dinnerCount: dinnerSplit.total,
+    individualLunchCount: lunchSplit.individual,
+    contractorLunchCount: lunchSplit.contractor,
+    individualDinnerCount: dinnerSplit.individual,
+    contractorDinnerCount: dinnerSplit.contractor,
     pendingLunchCount: pending.pendingLunchCount,
     pendingDinnerCount: pending.pendingDinnerCount,
+    pendingLunch: pending.pendingLunch,
+    pendingDinner: pending.pendingDinner,
     lunch,
     dinner,
   });
@@ -350,9 +378,19 @@ router.get("/summary/monthly", async (req, res) => {
     byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"] += r.headcount ?? 1;
   }
   const days = dates.map((d) => byDate[d]);
-  const totalLunch = days.reduce((s, d) => s + d.lunchCount, 0);
-  const totalDinner = days.reduce((s, d) => s + d.dinnerCount, 0);
-  res.json({ month, days, totalLunch, totalDinner });
+  const lunchRows = rows.filter((r) => r.mealType === "lunch");
+  const dinnerRows = rows.filter((r) => r.mealType === "dinner");
+  const [lunchSplit, dinnerSplit] = await Promise.all([splitByEmployeeType(lunchRows), splitByEmployeeType(dinnerRows)]);
+  res.json({
+    month,
+    days,
+    totalLunch: lunchSplit.total,
+    totalDinner: dinnerSplit.total,
+    individualTotalLunch: lunchSplit.individual,
+    contractorTotalLunch: lunchSplit.contractor,
+    individualTotalDinner: dinnerSplit.individual,
+    contractorTotalDinner: dinnerSplit.contractor,
+  });
 });
 
 /* ---------------------------- 엑셀 내보내기 ---------------------------- */

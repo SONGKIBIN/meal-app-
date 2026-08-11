@@ -189,6 +189,9 @@ table.data-table th { background: #f0f2f6; }
 }
 .summary-cards .stat .num { font-size: 1.6rem; font-weight: 800; color: var(--primary-dark); }
 .summary-cards .stat .lbl { font-size: 0.8rem; color: var(--text-muted); }
+.summary-cards .stat.highlight { background: var(--primary); }
+.summary-cards .stat.highlight .num,
+.summary-cards .stat.highlight .lbl { color: #fff; }
 
 .toast {
   position: fixed;

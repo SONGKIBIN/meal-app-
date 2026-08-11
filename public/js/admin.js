@@ -244,21 +244,42 @@ const AdminUI = {
     const el = document.getElementById("dailyContent");
     try {
       const data = await API.get(`/admin/summary/daily?date=${this.dailyDate}`);
-      const rows = [
-        ...data.lunch.map((r) => ({ ...r, mealLabel: t("lunch") })),
-        ...data.dinner.map((r) => ({ ...r, mealLabel: t("dinner") })),
-      ];
+      const appliedRows = (list) => list.map((r) => `
+        <tr>
+          <td>${escapeHtml(r.employeeId)}</td>
+          <td>${escapeHtml(r.employeeName)}</td>
+          <td>${escapeHtml(r.department)}</td>
+          <td>${r.headcount ?? 1}</td>
+        </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
+      const pendingRows = (list) => list.map((e) => `
+        <tr>
+          <td>${escapeHtml(e.employeeId)}</td>
+          <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
+          <td>${escapeHtml(e.department)}</td>
+          <td>${e.shortfall}</td>
+        </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
+      const listTable = (rowsHtml) => `
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table></div>`;
       el.innerHTML = `
         <div class="summary-cards">
-          <div class="stat"><div class="num">${data.lunchCount}</div><div class="lbl">${t("lunchCount")}</div></div>
-          <div class="stat"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinnerCount")}</div></div>
-          <div class="stat"><div class="num">${data.pendingLunchCount}</div><div class="lbl">${t("pendingLunch")}</div></div>
-          <div class="stat"><div class="num">${data.pendingDinnerCount}</div><div class="lbl">${t("pendingDinner")}</div></div>
+          <div class="stat"><div class="num">${data.individualLunchCount}</div><div class="lbl">${t("individualStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat"><div class="num">${data.contractorLunchCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat highlight"><div class="num">${data.lunchCount}</div><div class="lbl">${t("lunch")} ${t("total")}</div></div>
+          <div class="stat"><div class="num">${data.individualDinnerCount}</div><div class="lbl">${t("individualStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat"><div class="num">${data.contractorDinnerCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat highlight"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
         </div>
-        <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("mealType")}</th><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
-          <tbody>${rows.map((r) => `<tr><td>${r.mealLabel}</td><td>${escapeHtml(r.employeeId)}</td><td>${escapeHtml(r.employeeName)}</td><td>${escapeHtml(r.department)}</td><td>${r.headcount ?? 1}</td></tr>`).join("") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
-        </table></div>
+        <h3>${t("lunch")} ${t("applicantListLabel")} (${data.lunchCount})</h3>
+        ${listTable(appliedRows(data.lunch))}
+        <h3>${t("lunch")} ${t("nonApplicantListLabel")} (${data.pendingLunchCount})</h3>
+        ${listTable(pendingRows(data.pendingLunch))}
+        <h3>${t("dinner")} ${t("applicantListLabel")} (${data.dinnerCount})</h3>
+        ${listTable(appliedRows(data.dinner))}
+        <h3>${t("dinner")} ${t("nonApplicantListLabel")} (${data.pendingDinnerCount})</h3>
+        ${listTable(pendingRows(data.pendingDinner))}
       `;
     } catch (err) {
       el.textContent = err.message;
@@ -295,8 +316,12 @@ const AdminUI = {
       const data = await API.get(`/admin/summary/monthly?month=${this.month}`);
       el.innerHTML = `
         <div class="summary-cards">
-          <div class="stat"><div class="num">${data.totalLunch}</div><div class="lbl">${t("lunchCount")} ${t("total")}</div></div>
-          <div class="stat"><div class="num">${data.totalDinner}</div><div class="lbl">${t("dinnerCount")} ${t("total")}</div></div>
+          <div class="stat"><div class="num">${data.individualTotalLunch}</div><div class="lbl">${t("individualStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat"><div class="num">${data.contractorTotalLunch}</div><div class="lbl">${t("contractorStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat highlight"><div class="num">${data.totalLunch}</div><div class="lbl">${t("lunch")} ${t("total")}</div></div>
+          <div class="stat"><div class="num">${data.individualTotalDinner}</div><div class="lbl">${t("individualStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat"><div class="num">${data.contractorTotalDinner}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat highlight"><div class="num">${data.totalDinner}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
         </div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("date")}</th><th>${t("lunchCount")}</th><th>${t("dinnerCount")}</th></tr></thead>
@@ -388,8 +413,9 @@ const AdminUI = {
   },
 
   // 개인 인원 / 도급사 총원(TO 합계) / 합계를 계산해 요약 카드로 표시합니다 (재직 중인 직원 기준).
+  // 관리자(role=admin) 계정은 이 시스템으로 직접 식사를 신청하지 않으므로 인원 집계에서 제외합니다.
   computeEmployeeSummary() {
-    const activeList = this.employeesCache.filter((e) => e.active);
+    const activeList = this.employeesCache.filter((e) => e.active && e.role !== "admin");
     const individualCount = activeList.filter((e) => e.employeeType !== "contractor").length;
     const contractorTotalCount = activeList
       .filter((e) => e.employeeType === "contractor")

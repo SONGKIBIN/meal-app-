@@ -157,6 +157,10 @@ const I18N = {
     checkUpdate: "업데이트 확인",
     updateConfirm: "최신 버전으로 업데이트하시겠습니까? 잠시 후 화면이 새로고침됩니다.",
     updateChecking: "업데이트를 확인하는 중입니다...",
+    individualStaffLabel: "일반직원",
+    contractorStaffLabel: "도급직원",
+    applicantListLabel: "신청자",
+    nonApplicantListLabel: "미신청자",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -313,6 +317,10 @@ const I18N = {
     checkUpdate: "Check for Update",
     updateConfirm: "Update to the latest version? The screen will refresh shortly.",
     updateChecking: "Checking for updates...",
+    individualStaffLabel: "Individual Staff",
+    contractorStaffLabel: "Contractor Staff",
+    applicantListLabel: "Applicants",
+    nonApplicantListLabel: "Not Applied",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -470,6 +478,10 @@ const I18N = {
     checkUpdate: "检查更新",
     updateConfirm: "要更新到最新版本吗？页面稍后将自动刷新。",
     updateChecking: "正在检查更新...",
+    individualStaffLabel: "普通员工",
+    contractorStaffLabel: "承包员工",
+    applicantListLabel: "已申请人员",
+    nonApplicantListLabel: "未申请人员",
   },
 };
 
