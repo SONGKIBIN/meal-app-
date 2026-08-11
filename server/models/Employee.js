@@ -12,6 +12,10 @@ const employeeSchema = new mongoose.Schema(
     // 도급회사(단체) 계정의 총 인원(TO). 설정해두면 신청 인원을 뺀 나머지를 "미신청 인원"으로 계산합니다.
     // 개인 직원에게는 사용하지 않습니다 (null).
     totalHeadcount: { type: Number, default: null, min: 0 },
+    // 도급(단체) 계정이 직접 요청한 총원(TO) 수정 제안. 관리자가 승인하면 totalHeadcount에 반영되고 초기화됩니다.
+    requestedHeadcount: { type: Number, default: null, min: 0 },
+    requestedHeadcountNote: { type: String, default: "", trim: true },
+    requestedHeadcountAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

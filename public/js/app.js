@@ -2,6 +2,7 @@
 let currentWeekAnchor = new Date().toISOString().slice(0, 10);
 let currentMainTab = "my";
 let deferredInstallPrompt = null;
+let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
 
 /* ---------------------------- 공통 유틸 ---------------------------- */
 
@@ -117,11 +118,70 @@ async function loadWeek(anchorDate) {
       data.deadline.dinner.hour,
       data.deadline.dinner.minute
     );
+    currentContractorTotalHeadcount = data.contractor && Number.isInteger(data.contractor.totalHeadcount) ? data.contractor.totalHeadcount : null;
     renderWeekGrid(data.days);
+    renderContractorToCard(data.contractor);
     checkTodayReminder(data.days);
   } catch (err) {
     grid.innerHTML = `<div>${escapeHtml(err.message)}</div>`;
   }
+}
+
+// 도급(단체) 계정 전용: 등록된 총원(TO)과, 대기 중인 총원 수정 요청이 있으면 함께 보여줍니다.
+function renderContractorToCard(contractor) {
+  const card = document.getElementById("contractorToCard");
+  if (!card) return;
+  if (!isContractorUser() || !contractor) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+    return;
+  }
+  card.classList.remove("hidden");
+  const total = Number.isInteger(contractor.totalHeadcount) ? contractor.totalHeadcount : null;
+  const pendingNotice = Number.isInteger(contractor.requestedHeadcount)
+    ? `<p class="deadline-note">${escapeHtml(t("requestHeadcountPendingNotice", contractor.requestedHeadcount))}</p>`
+    : "";
+  card.innerHTML = `
+    <div class="summary-cards">
+      <div class="stat"><div class="num">${total !== null ? total : "-"}</div><div class="lbl">${t("totalHeadcount")}</div></div>
+    </div>
+    ${pendingNotice}
+    <div class="toolbar">
+      <button class="secondary" id="requestHeadcountBtn">${t("requestHeadcountChange")}</button>
+    </div>
+  `;
+  document.getElementById("requestHeadcountBtn").addEventListener("click", () => openHeadcountRequestModal(contractor));
+}
+
+function openHeadcountRequestModal(contractor) {
+  const total = Number.isInteger(contractor.totalHeadcount) ? contractor.totalHeadcount : "";
+  openModal(`
+    <h3>${t("requestHeadcountModalTitle")}</h3>
+    <div class="field"><label>${t("requestHeadcountCurrent")}</label><input value="${total !== "" ? total : "-"}" disabled></div>
+    <div class="field"><label>${t("requestHeadcountNew")}</label><input id="reqHeadcountInput" type="number" min="0" max="9999" value="${total}"></div>
+    <div class="field"><label>${t("requestHeadcountNote")}</label><textarea id="reqHeadcountNote" rows="3" style="width:100%;" placeholder="${t("requestHeadcountNotePlaceholder")}"></textarea></div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button id="reqHeadcountSubmitBtn">${t("requestHeadcountSubmit")}</button>
+      <button class="secondary" id="reqHeadcountCloseBtn">${t("close")}</button>
+    </div>
+  `);
+  document.getElementById("reqHeadcountCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("reqHeadcountSubmitBtn").addEventListener("click", async () => {
+    const n = parseInt(document.getElementById("reqHeadcountInput").value, 10);
+    if (!Number.isInteger(n) || n < 0 || n > 9999) {
+      alert(t("totalHeadcountPlaceholder"));
+      return;
+    }
+    const note = document.getElementById("reqHeadcountNote").value.trim();
+    try {
+      await API.post("/reservations/headcount-request", { requestedHeadcount: n, note });
+      closeModal();
+      showToast(t("requestHeadcountSent"));
+      loadWeek(currentWeekAnchor);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 }
 
 /* ---------------------------- 오늘자 미신청 안내 팝업 ---------------------------- */
@@ -323,15 +383,20 @@ function renderWeekGrid(days) {
 }
 
 // 도급회사(단체) 계정용: 토글 버튼 대신 인원수를 숫자로 입력해 신청/수정/취소(0 입력)합니다.
+// totalHeadcount(TO)가 등록되어 있으면 신청 인원과 미신청 인원을 함께 보여줍니다.
 function renderHeadcountRow(date, mealType, info) {
   const mealLabel = t(mealType);
   const editable = info.canApply; // 신청 가능 여부와 취소(변경) 가능 여부가 동일한 규칙이라 하나로 사용합니다.
   const value = info.headcount ? info.headcount : "";
+  const breakdown = currentContractorTotalHeadcount !== null
+    ? `<div class="deadline-note" style="width:100%;margin:2px 0 0;">${t("appliedOfTotal", info.headcount, currentContractorTotalHeadcount)} · ${t("notAppliedCount")} ${info.notApplied ?? Math.max(currentContractorTotalHeadcount - info.headcount, 0)}</div>`
+    : "";
   return `
     <div class="meal-row headcount-row" data-date="${date}" data-meal="${mealType}">
       <div class="meal-name">${mealLabel}</div>
       <input type="number" min="0" max="9999" class="headcount-input" placeholder="${t("headcountPlaceholder")}" value="${value}" ${editable ? "" : "disabled"}>
       <button data-headcount-save ${editable ? "" : "disabled"}>${t("saveHeadcount")}</button>
+      ${breakdown}
     </div>
   `;
 }

@@ -100,6 +100,58 @@ router.delete("/employees/:id", async (req, res) => {
   }
 });
 
+// 완전 삭제 (하드 삭제) - 이미 퇴직 처리(active:false)된 직원만 대상으로 허용, DB 기록에서 완전히 제거
+router.delete("/employees/:id/permanent", async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
+    if (emp.active) {
+      return res.status(400).json({ error: "재직 중인 직원은 완전 삭제할 수 없습니다. 먼저 퇴직 처리해주세요." });
+    }
+    await Employee.deleteOne({ _id: emp._id });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "완전 삭제 중 오류가 발생했습니다." });
+  }
+});
+
+// 도급(단체) 계정이 신청한 총원(TO) 수정 요청을 관리자가 승인 - totalHeadcount에 반영 후 요청 필드 초기화
+router.post("/employees/:id/approve-headcount-request", async (req, res) => {
+  try {
+    const emp = await Employee.findById(req.params.id);
+    if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
+    if (emp.requestedHeadcount === null || emp.requestedHeadcount === undefined) {
+      return res.status(400).json({ error: "대기 중인 총원 수정 요청이 없습니다." });
+    }
+    emp.totalHeadcount = emp.requestedHeadcount;
+    emp.requestedHeadcount = null;
+    emp.requestedHeadcountNote = "";
+    emp.requestedHeadcountAt = null;
+    await emp.save();
+    res.json({ employee: emp });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "승인 처리 중 오류가 발생했습니다." });
+  }
+});
+
+// 총원(TO) 수정 요청 거절 - 요청 필드만 초기화하고 기존 totalHeadcount는 유지
+router.post("/employees/:id/reject-headcount-request", async (req, res) => {
+  try {
+    const emp = await Employee.findByIdAndUpdate(
+      req.params.id,
+      { $set: { requestedHeadcount: null, requestedHeadcountNote: "", requestedHeadcountAt: null } },
+      { new: true }
+    );
+    if (!emp) return res.status(404).json({ error: "직원을 찾을 수 없습니다." });
+    res.json({ employee: emp });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "거절 처리 중 오류가 발생했습니다." });
+  }
+});
+
 // 엑셀 일괄 등록 템플릿 다운로드
 router.get("/employees/import-template", async (req, res) => {
   const wb = new ExcelJS.Workbook();

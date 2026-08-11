@@ -53,6 +53,8 @@ const AdminUI = {
   currentTab: null,
   employeesCache: [],
   empSearchTerm: "",
+  empSort: "department",
+  empStatusFilter: "active",
   statusDate: null,
   dailyDate: null,
   month: null,
@@ -311,6 +313,11 @@ const AdminUI = {
     const container = document.getElementById("adminEmployeesView");
     container.innerHTML = `
       <div class="card">
+        <h2>${t("employeeCountSummary")}</h2>
+        <div class="summary-cards" id="empCountSummary"></div>
+      </div>
+      <div class="card hidden" id="empPendingRequestsCard"></div>
+      <div class="card">
         <div class="toolbar">
           <button id="addEmpBtn">${t("addEmployee")}</button>
           <div class="spacer"></div>
@@ -324,6 +331,18 @@ const AdminUI = {
         <div class="toolbar">
           <label>${t("empSearch")}</label>
           <input type="text" id="empSearchInput" placeholder="${t("empSearchPlaceholder")}" value="${escapeHtml(this.empSearchTerm)}" style="min-width:220px;">
+          <label>${t("sortBy")}</label>
+          <select id="empSortSelect">
+            <option value="department" ${this.empSort === "department" ? "selected" : ""}>${t("sortByDept")}</option>
+            <option value="name" ${this.empSort === "name" ? "selected" : ""}>${t("sortByName")}</option>
+            <option value="employeeId" ${this.empSort === "employeeId" ? "selected" : ""}>${t("sortByEmpId")}</option>
+            <option value="status" ${this.empSort === "status" ? "selected" : ""}>${t("sortByStatus")}</option>
+          </select>
+        </div>
+        <div class="tabs" id="empStatusFilterTabs">
+          <button class="${this.empStatusFilter === "all" ? "active" : ""}" data-status-filter="all">${t("statusAll")}</button>
+          <button class="${this.empStatusFilter === "active" ? "active" : ""}" data-status-filter="active">${t("statusActiveFilter")}</button>
+          <button class="${this.empStatusFilter === "inactive" ? "active" : ""}" data-status-filter="inactive">${t("statusInactiveFilter")}</button>
         </div>
         <div class="table-wrap"><table class="data-table" id="empTable">
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("employeeType")}</th><th>${t("role")}</th><th>${t("active")}</th><th></th></tr></thead>
@@ -338,6 +357,19 @@ const AdminUI = {
       this.empSearchTerm = e.target.value;
       this.renderEmployeeRows();
     });
+    document.getElementById("empSortSelect").addEventListener("change", (e) => {
+      this.empSort = e.target.value;
+      this.renderEmployeeRows();
+    });
+    document.querySelectorAll("#empStatusFilterTabs [data-status-filter]").forEach((b) => {
+      b.addEventListener("click", () => {
+        this.empStatusFilter = b.dataset.statusFilter;
+        this.renderEmployeeRows();
+        document.querySelectorAll("#empStatusFilterTabs [data-status-filter]").forEach((btn) =>
+          btn.classList.toggle("active", btn.dataset.statusFilter === this.empStatusFilter)
+        );
+      });
+    });
     await this.loadEmployees();
   },
 
@@ -345,40 +377,173 @@ const AdminUI = {
     const tbody = document.querySelector("#empTable tbody");
     try {
       const data = await API.get("/admin/employees");
-      // 서버에서 부서(가나다)→이름(가나다) 순으로 이미 정렬되어 내려옵니다.
       this.employeesCache = data.employees;
+      this.renderEmployeeSummary();
+      this.renderPendingHeadcountRequests();
       this.renderEmployeeRows();
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6">${escapeHtml(err.message)}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7">${escapeHtml(err.message)}</td></tr>`;
     }
   },
 
-  // 검색어로 필터링 후 화면에 표시합니다 (정렬 순서는 서버에서 내려온 부서→이름 순 그대로 유지).
+  // 개인 인원 / 도급사 총원(TO 합계) / 합계를 계산해 요약 카드로 표시합니다 (재직 중인 직원 기준).
+  computeEmployeeSummary() {
+    const activeList = this.employeesCache.filter((e) => e.active);
+    const individualCount = activeList.filter((e) => e.employeeType !== "contractor").length;
+    const contractorTotalCount = activeList
+      .filter((e) => e.employeeType === "contractor")
+      .reduce((sum, e) => sum + (Number.isInteger(e.totalHeadcount) ? e.totalHeadcount : 0), 0);
+    return { individualCount, contractorTotalCount, total: individualCount + contractorTotalCount };
+  },
+
+  renderEmployeeSummary() {
+    const el = document.getElementById("empCountSummary");
+    if (!el) return;
+    const s = this.computeEmployeeSummary();
+    el.innerHTML = `
+      <div class="stat"><div class="num">${s.individualCount}</div><div class="lbl">${t("individualCount")}</div></div>
+      <div class="stat"><div class="num">${s.contractorTotalCount}</div><div class="lbl">${t("contractorTotalCount")}</div></div>
+      <div class="stat"><div class="num">${s.total}</div><div class="lbl">${t("total")}</div></div>
+    `;
+  },
+
+  // 도급(단체) 계정이 보낸 총원(TO) 수정 요청이 있으면 승인/거절할 수 있는 카드를 표시합니다.
+  renderPendingHeadcountRequests() {
+    const card = document.getElementById("empPendingRequestsCard");
+    if (!card) return;
+    const pending = this.employeesCache.filter((e) => Number.isInteger(e.requestedHeadcount));
+    if (!pending.length) {
+      card.classList.add("hidden");
+      card.innerHTML = "";
+      return;
+    }
+    card.classList.remove("hidden");
+    card.innerHTML = `
+      <h2>${t("pendingHeadcountRequests")}</h2>
+      <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("totalHeadcount")}</th><th>${t("requestHeadcountNew")}</th><th>${t("requestHeadcountNote")}</th><th></th></tr></thead>
+        <tbody>${pending.map((e) => `
+          <tr>
+            <td>${escapeHtml(e.employeeId)}</td>
+            <td>${escapeHtml(e.name)}</td>
+            <td>${Number.isInteger(e.totalHeadcount) ? e.totalHeadcount : "-"}</td>
+            <td><strong>${e.requestedHeadcount}</strong></td>
+            <td>${escapeHtml(e.requestedHeadcountNote || "")}</td>
+            <td>
+              <button data-approve="${e._id}">${t("approve")}</button>
+              <button class="danger" data-reject="${e._id}">${t("reject")}</button>
+            </td>
+          </tr>
+        `).join("")}</tbody>
+      </table></div>
+    `;
+    card.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => this.approveHeadcountRequest(b.dataset.approve)));
+    card.querySelectorAll("[data-reject]").forEach((b) => b.addEventListener("click", () => this.rejectHeadcountRequest(b.dataset.reject)));
+  },
+
+  async approveHeadcountRequest(id) {
+    try {
+      await API.post(`/admin/employees/${id}/approve-headcount-request`, {});
+      showToast(t("approveSuccess"));
+      this.loadEmployees();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async rejectHeadcountRequest(id) {
+    if (!confirm(t("reject") + "?")) return;
+    try {
+      await API.post(`/admin/employees/${id}/reject-headcount-request`, {});
+      showToast(t("rejectSuccess"));
+      this.loadEmployees();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  sortEmployees(list) {
+    const sorted = [...list];
+    const cmp = (a, b) => String(a || "").localeCompare(String(b || ""), "ko");
+    switch (this.empSort) {
+      case "name":
+        sorted.sort((a, b) => cmp(a.name, b.name));
+        break;
+      case "employeeId":
+        sorted.sort((a, b) => String(a.employeeId).localeCompare(String(b.employeeId), undefined, { numeric: true }));
+        break;
+      case "status":
+        sorted.sort((a, b) => (b.active === a.active ? cmp(a.department, b.department) || cmp(a.name, b.name) : b.active - a.active));
+        break;
+      case "department":
+      default:
+        sorted.sort((a, b) => cmp(a.department, b.department) || cmp(a.name, b.name));
+        break;
+    }
+    return sorted;
+  },
+
+  // 검색어 + 재직/퇴직 필터 + 선택한 정렬 기준을 적용해 화면에 표시합니다.
   renderEmployeeRows() {
     const tbody = document.querySelector("#empTable tbody");
     if (!tbody) return;
     const term = (this.empSearchTerm || "").trim().toLowerCase();
-    const list = term
+    let list = term
       ? this.employeesCache.filter((e) =>
           [e.employeeId, e.name, e.department].some((v) => String(v || "").toLowerCase().includes(term))
         )
       : this.employeesCache;
-    tbody.innerHTML = list.map((e) => `
+    if (this.empStatusFilter === "active") list = list.filter((e) => e.active);
+    else if (this.empStatusFilter === "inactive") list = list.filter((e) => !e.active);
+    list = this.sortEmployees(list);
+    tbody.innerHTML = list.map((e) => {
+      const pendingBadge = Number.isInteger(e.requestedHeadcount)
+        ? ` <span class="badge admin" title="${escapeHtml(t("requestHeadcountChange"))}">→${e.requestedHeadcount}</span>`
+        : "";
+      const actions = e.active
+        ? `<button class="secondary" data-edit="${e._id}">${t("edit")}</button>
+           <button class="danger" data-del="${e._id}">${t("delete")}</button>`
+        : `<button class="secondary" data-edit="${e._id}">${t("edit")}</button>
+           <button class="secondary" data-restore="${e._id}">${t("restoreEmployee")}</button>
+           <button class="danger" data-permdel="${e._id}" title="${escapeHtml(t("permanentDeleteHelp"))}">${t("permanentDelete")}</button>`;
+      return `
         <tr>
           <td>${escapeHtml(e.employeeId)}</td>
           <td>${escapeHtml(e.name)}</td>
           <td>${escapeHtml(e.department)}</td>
-          <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>${Number.isInteger(e.totalHeadcount) ? ` TO ${e.totalHeadcount}` : ""}` : t("individualType")}</td>
+          <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>${Number.isInteger(e.totalHeadcount) ? ` TO ${e.totalHeadcount}` : ""}${pendingBadge}` : t("individualType")}</td>
           <td>${e.role === "admin" ? t("admin") : t("user")}</td>
           <td>${e.active ? t("active") : t("inactive")}</td>
-          <td>
-            <button class="secondary" data-edit="${e._id}">${t("edit")}</button>
-            <button class="danger" data-del="${e._id}">${t("delete")}</button>
-          </td>
+          <td>${actions}</td>
         </tr>
-      `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`;
+      `;
+    }).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`;
     tbody.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => this.openEmployeeModal(b.dataset.edit)));
     tbody.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => this.deleteEmployee(b.dataset.del)));
+    tbody.querySelectorAll("[data-restore]").forEach((b) => b.addEventListener("click", () => this.restoreEmployee(b.dataset.restore)));
+    tbody.querySelectorAll("[data-permdel]").forEach((b) => b.addEventListener("click", () => this.permanentDeleteEmployee(b.dataset.permdel)));
+  },
+
+  async restoreEmployee(id) {
+    if (!confirm(t("confirmRestore"))) return;
+    try {
+      await API.put(`/admin/employees/${id}`, { active: true });
+      showToast(t("restoreEmployee"));
+      this.loadEmployees();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async permanentDeleteEmployee(id) {
+    if (!confirm(t("confirmPermanentDelete"))) return;
+    try {
+      await API.del(`/admin/employees/${id}/permanent`);
+      showToast(t("permanentDelete"));
+      this.loadEmployees();
+    } catch (err) {
+      alert(err.message);
+    }
   },
 
   openEmployeeModal(id) {
