@@ -161,6 +161,12 @@ const I18N = {
     contractorStaffLabel: "도급직원",
     applicantListLabel: "신청자",
     nonApplicantListLabel: "미신청자",
+    shareLink: "접속 링크 공유",
+    shareLinkTitle: "접속 링크 공유",
+    shareLinkHelp: "아래 링크를 복사하거나 QR코드를 스캔해서 다른 직원에게 전달해주세요.",
+    copyLink: "링크 복사",
+    linkCopied: "링크가 복사되었습니다.",
+    qrLoadFailed: "QR코드를 불러오지 못했습니다. 위 링크를 직접 전달해주세요.",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -321,6 +327,12 @@ const I18N = {
     contractorStaffLabel: "Contractor Staff",
     applicantListLabel: "Applicants",
     nonApplicantListLabel: "Not Applied",
+    shareLink: "Share Access Link",
+    shareLinkTitle: "Share Access Link",
+    shareLinkHelp: "Copy the link below or scan the QR code to share it with other employees.",
+    copyLink: "Copy Link",
+    linkCopied: "Link copied.",
+    qrLoadFailed: "Couldn't load the QR code. Please share the link above directly.",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -482,6 +494,12 @@ const I18N = {
     contractorStaffLabel: "承包员工",
     applicantListLabel: "已申请人员",
     nonApplicantListLabel: "未申请人员",
+    shareLink: "分享访问链接",
+    shareLinkTitle: "分享访问链接",
+    shareLinkHelp: "复制下方链接，或扫描二维码分享给其他员工。",
+    copyLink: "复制链接",
+    linkCopied: "链接已复制。",
+    qrLoadFailed: "二维码加载失败，请直接分享上方链接。",
   },
 };
 

@@ -36,10 +36,40 @@ function applyI18n() {
 
 /* ---------------------------- 로그인 / 로그아웃 ---------------------------- */
 
+const LAST_LOGIN_KEY = "meal_last_login";
+
+// 마지막으로 로그인에 성공한 사번/이름을 저장해두면, 다음에 접속했을 때 입력칸에 자동으로 채워집니다.
+function saveLastLogin(employeeId, name) {
+  try {
+    localStorage.setItem(LAST_LOGIN_KEY, JSON.stringify({ employeeId, name }));
+  } catch (err) {
+    // 저장 공간을 사용할 수 없는 환경이면 조용히 무시합니다 (자동 저장은 편의 기능이라 필수는 아님).
+  }
+}
+
+function loadLastLogin() {
+  try {
+    const raw = localStorage.getItem(LAST_LOGIN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function prefillLoginForm() {
+  const saved = loadLastLogin();
+  if (!saved) return;
+  const idInput = document.getElementById("inputEmployeeId");
+  const nameInput = document.getElementById("inputName");
+  if (idInput && !idInput.value) idInput.value = saved.employeeId || "";
+  if (nameInput && !nameInput.value) nameInput.value = saved.name || "";
+}
+
 function showLoginView() {
   document.getElementById("loginView").classList.remove("hidden");
   document.getElementById("appView").classList.add("hidden");
   document.getElementById("topbar").classList.add("hidden");
+  prefillLoginForm();
 }
 
 function showAppView() {
@@ -81,6 +111,7 @@ async function doLogin() {
     const data = await API.request("POST", "/auth/login", { employeeId, name }, { silent: true });
     API.setToken(data.token);
     API.setUser(data.user);
+    saveLastLogin(employeeId, name);
     showAppView();
   } catch (err) {
     errEl.textContent = err.message;
@@ -299,6 +330,45 @@ async function toggleMenuView() {
   } catch (err) {
     area.textContent = err.message;
   }
+}
+
+/* ---------------------------- 접속 링크 공유 / QR코드 ---------------------------- */
+
+// 로그인한 화면 상단의 "접속 링크 공유" 버튼을 누르면, 이 사이트 주소를 복사하거나
+// QR코드를 스캔해서 다른 직원에게 전달할 수 있는 모달을 보여줍니다.
+function openShareLinkModal() {
+  const url = window.location.origin + "/";
+  const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(url)}`;
+  openModal(`
+    <h3>${t("shareLinkTitle")}</h3>
+    <p class="deadline-note">${t("shareLinkHelp")}</p>
+    <div class="field">
+      <input id="shareLinkInput" value="${escapeHtml(url)}" readonly style="width:100%;">
+    </div>
+    <div class="toolbar">
+      <button id="copyLinkBtn">${t("copyLink")}</button>
+      <button class="secondary" id="shareLinkCloseBtn">${t("close")}</button>
+    </div>
+    <div style="text-align:center;margin-top:16px;">
+      <img src="${qrImgUrl}" alt="QR" width="220" height="220"
+        style="border-radius:8px;border:1px solid var(--border);"
+        onerror="this.style.display='none'; document.getElementById('qrFallbackMsg').style.display='block';">
+      <p id="qrFallbackMsg" class="deadline-note" style="display:none;">${t("qrLoadFailed")}</p>
+    </div>
+  `);
+  document.getElementById("shareLinkCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("copyLinkBtn").addEventListener("click", async () => {
+    const input = document.getElementById("shareLinkInput");
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (err) {
+      input.removeAttribute("readonly");
+      input.select();
+      document.execCommand("copy");
+      input.setAttribute("readonly", "readonly");
+    }
+    showToast(t("linkCopied"));
+  });
 }
 
 /* ---------------------------- PWA 설치 ---------------------------- */
@@ -552,6 +622,7 @@ function init() {
   document.getElementById("installBtn").addEventListener("click", onInstallClick);
   document.getElementById("notifyBtn").addEventListener("click", enableNotifications);
   document.getElementById("checkUpdateBtn").addEventListener("click", checkForUpdate);
+  document.getElementById("shareLinkBtn").addEventListener("click", openShareLinkModal);
 
   document.querySelectorAll("#mainTabs button").forEach((b) => {
     b.addEventListener("click", () => switchMainTab(b.dataset.tab));
