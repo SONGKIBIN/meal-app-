@@ -337,6 +337,7 @@ const AdminUI = {
             <option value="name" ${this.empSort === "name" ? "selected" : ""}>${t("sortByName")}</option>
             <option value="employeeId" ${this.empSort === "employeeId" ? "selected" : ""}>${t("sortByEmpId")}</option>
             <option value="status" ${this.empSort === "status" ? "selected" : ""}>${t("sortByStatus")}</option>
+            <option value="role" ${this.empSort === "role" ? "selected" : ""}>${t("sortByRole")}</option>
           </select>
         </div>
         <div class="tabs" id="empStatusFilterTabs">
@@ -475,6 +476,12 @@ const AdminUI = {
       case "status":
         sorted.sort((a, b) => (b.active === a.active ? cmp(a.department, b.department) || cmp(a.name, b.name) : b.active - a.active));
         break;
+      case "role": {
+        // 관리자 그룹을 먼저, 그다음 일반직원 그룹으로 묶어서 보여주고, 그룹 내에서는 부서→이름 순으로 정렬합니다.
+        const roleRank = (e) => (e.role === "admin" ? 0 : 1);
+        sorted.sort((a, b) => roleRank(a) - roleRank(b) || cmp(a.department, b.department) || cmp(a.name, b.name));
+        break;
+      }
       case "department":
       default:
         sorted.sort((a, b) => cmp(a.department, b.department) || cmp(a.name, b.name));

@@ -152,6 +152,11 @@ const I18N = {
     rejectSuccess: "거절되었습니다.",
     notAppliedCount: "미신청",
     noPendingRequests: "대기 중인 총원 수정 요청이 없습니다.",
+    sortByRole: "권한별",
+    companyName: "회사명",
+    checkUpdate: "업데이트 확인",
+    updateConfirm: "최신 버전으로 업데이트하시겠습니까? 잠시 후 화면이 새로고침됩니다.",
+    updateChecking: "업데이트를 확인하는 중입니다...",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -303,6 +308,11 @@ const I18N = {
     rejectSuccess: "Rejected.",
     notAppliedCount: "Not Applied",
     noPendingRequests: "No pending headcount change requests.",
+    sortByRole: "By Role",
+    companyName: "Company Name",
+    checkUpdate: "Check for Update",
+    updateConfirm: "Update to the latest version? The screen will refresh shortly.",
+    updateChecking: "Checking for updates...",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -455,6 +465,11 @@ const I18N = {
     rejectSuccess: "已拒绝。",
     notAppliedCount: "未申请",
     noPendingRequests: "没有待处理的总人数修改申请。",
+    sortByRole: "按权限",
+    companyName: "公司名称",
+    checkUpdate: "检查更新",
+    updateConfirm: "要更新到最新版本吗？页面稍后将自动刷新。",
+    updateChecking: "正在检查更新...",
   },
 };
 

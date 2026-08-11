@@ -47,9 +47,12 @@ function showAppView() {
   document.getElementById("appView").classList.remove("hidden");
   document.getElementById("topbar").classList.remove("hidden");
   const user = API.getUser();
+  const isContractor = user.employeeType === "contractor";
+  const nameLabel = isContractor ? `${t("companyName")}: ` : "";
   document.getElementById("userBadge").innerHTML =
-    `${escapeHtml(user.name)} (${escapeHtml(user.employeeId)})` +
-    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
+    `${nameLabel}${escapeHtml(user.name)} (${escapeHtml(user.employeeId)})` +
+    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "") +
+    (isContractor ? ` <span class="badge admin">${t("contractorBadge")}</span>` : "");
   document.getElementById("tabAdmin").classList.toggle("hidden", user.role !== "admin");
   if ("Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
@@ -137,11 +140,13 @@ function renderContractorToCard(contractor) {
     return;
   }
   card.classList.remove("hidden");
+  const user = API.getUser();
   const total = Number.isInteger(contractor.totalHeadcount) ? contractor.totalHeadcount : null;
   const pendingNotice = Number.isInteger(contractor.requestedHeadcount)
     ? `<p class="deadline-note">${escapeHtml(t("requestHeadcountPendingNotice", contractor.requestedHeadcount))}</p>`
     : "";
   card.innerHTML = `
+    <h3 style="margin:0 0 8px;">${escapeHtml(t("companyName"))}: ${escapeHtml(user.name)}</h3>
     <div class="summary-cards">
       <div class="stat"><div class="num">${total !== null ? total : "-"}</div><div class="lbl">${t("totalHeadcount")}</div></div>
     </div>
@@ -307,6 +312,32 @@ async function onInstallClick() {
   await deferredInstallPrompt.userChoice;
   deferredInstallPrompt = null;
   document.getElementById("installBtn").classList.add("hidden");
+}
+
+/* ---------------------------- 업데이트 확인 (PWA로 설치한 경우 옛 버전이 캐시에 남아있을 수 있어 수동 갱신 제공) ---------------------------- */
+
+async function checkForUpdate() {
+  if (!confirm(t("updateConfirm"))) return;
+  const btn = document.getElementById("checkUpdateBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t("updateChecking");
+  }
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    // 캐시/서비스워커를 정리한 뒤 새로고침하면 서버의 최신 파일을 새로 받아옵니다.
+    location.reload();
+  }
 }
 
 /* ---------------------------- 휴대폰(웹 푸시) 알림 구독 ---------------------------- */
@@ -512,6 +543,7 @@ function init() {
   document.getElementById("toggleMenuBtn").addEventListener("click", toggleMenuView);
   document.getElementById("installBtn").addEventListener("click", onInstallClick);
   document.getElementById("notifyBtn").addEventListener("click", enableNotifications);
+  document.getElementById("checkUpdateBtn").addEventListener("click", checkForUpdate);
 
   document.querySelectorAll("#mainTabs button").forEach((b) => {
     b.addEventListener("click", () => switchMainTab(b.dataset.tab));
