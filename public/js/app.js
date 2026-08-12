@@ -94,6 +94,7 @@ function showAppView() {
   if (!isMasterAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
   }
+  updateInstallButtonVisibility();
   switchMainTab(isMasterAdmin ? "admin" : "my");
   checkAnnouncement();
 }
@@ -373,10 +374,36 @@ function openShareLinkModal() {
 
 /* ---------------------------- PWA 설치 ---------------------------- */
 
+// 아이폰/아이패드의 Safari는 beforeinstallprompt 이벤트를 지원하지 않아 자동 설치 팝업을 띄울 수 없습니다.
+// 대신 기기를 감지해서 "공유 버튼 → 홈 화면에 추가" 방법을 안내하는 모달을 보여줍니다.
+function isIOSDevice() {
+  const ua = navigator.userAgent || "";
+  // iPadOS 13+는 데스크톱 Safari로 위장하므로 터치 지원 + Mac 플랫폼 조합으로 함께 판별합니다.
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneMode() {
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+}
+
+// 로그인 후 화면에 진입할 때마다 기기/설치 상태에 맞춰 "앱 설치" 버튼 표시 여부를 갱신합니다.
+function updateInstallButtonVisibility() {
+  const btn = document.getElementById("installBtn");
+  if (isStandaloneMode()) {
+    btn.classList.add("hidden");
+    return;
+  }
+  if (isIOSDevice()) {
+    btn.classList.remove("hidden");
+  } else if (deferredInstallPrompt) {
+    btn.classList.remove("hidden");
+  }
+}
+
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  document.getElementById("installBtn").classList.remove("hidden");
+  if (!isStandaloneMode()) document.getElementById("installBtn").classList.remove("hidden");
 });
 
 window.addEventListener("appinstalled", () => {
@@ -385,11 +412,31 @@ window.addEventListener("appinstalled", () => {
 });
 
 async function onInstallClick() {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  document.getElementById("installBtn").classList.add("hidden");
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    document.getElementById("installBtn").classList.add("hidden");
+    return;
+  }
+  if (isIOSDevice()) {
+    openIosInstallGuide();
+  }
+}
+
+function openIosInstallGuide() {
+  openModal(`
+    <h3>${t("iosInstallTitle")}</h3>
+    <div class="ios-install-steps">
+      <p><span class="badge admin">1</span> ${t("iosInstallStep1")}</p>
+      <p><span class="badge admin">2</span> ${t("iosInstallStep2")}</p>
+      <p><span class="badge admin">3</span> ${t("iosInstallStep3")}</p>
+    </div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button class="secondary" id="iosInstallCloseBtn">${t("close")}</button>
+    </div>
+  `);
+  document.getElementById("iosInstallCloseBtn").addEventListener("click", closeModal);
 }
 
 /* ---------------------------- 업데이트 확인 (PWA로 설치한 경우 옛 버전이 캐시에 남아있을 수 있어 수동 갱신 제공) ---------------------------- */
@@ -473,12 +520,14 @@ function renderWeekGrid(days) {
   grid.innerHTML = days.map((day) => {
     const wd = WEEKDAY_KEYS[new Date(day.date + "T00:00:00Z").getUTCDay()];
     const isToday = day.date === today;
+    const dayTypeCls = day.dayType === "holiday" ? "holiday" : day.dayType === "weekend" ? "weekend" : "";
+    const holidayTag = day.dayType === "holiday" && day.holidayLabel ? ` <span class="holiday-tag">${escapeHtml(day.holidayLabel)}</span>` : "";
     return `
-      <div class="day-cell ${isToday ? "today" : ""}">
+      <div class="day-cell ${isToday ? "today" : ""} ${dayTypeCls}">
         <div class="date-label">${day.date.slice(5)}</div>
-        <div class="weekday-label">${t(wd)}</div>
-        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch)}
-        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner)}
+        <div class="weekday-label">${t(wd)}${holidayTag}</div>
+        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch) + renderGuestRow(day.date, "lunch", day.lunch)}
+        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner) + renderGuestRow(day.date, "dinner", day.dinner)}
       </div>
     `;
   }).join("");
@@ -489,6 +538,46 @@ function renderWeekGrid(days) {
   grid.querySelectorAll("button[data-headcount-save]").forEach((btn) => {
     btn.addEventListener("click", onHeadcountSaveClick);
   });
+  grid.querySelectorAll("button[data-guest-save]").forEach((btn) => {
+    btn.addEventListener("click", onGuestSaveClick);
+  });
+}
+
+// 개인 직원용: 이미 신청한 끼니에 한해 함께 식사할 손님/내방객 인원을 추가로 등록할 수 있습니다.
+function renderGuestRow(date, mealType, info) {
+  if (!info.applied) return "";
+  const editable = info.canCancel; // 신청 취소와 동일한 마감 규칙을 적용합니다.
+  const value = info.guestCount || 0;
+  return `
+    <div class="meal-row guest-row" data-date="${date}" data-meal="${mealType}">
+      <div class="meal-name">${t("guestCountLabel")}</div>
+      <input type="number" min="0" max="99" class="guest-input" placeholder="0" value="${value}" ${editable ? "" : "disabled"}>
+      <button data-guest-save class="secondary" ${editable ? "" : "disabled"}>${t("save")}</button>
+    </div>
+  `;
+}
+
+async function onGuestSaveClick(e) {
+  const btn = e.currentTarget;
+  const row = btn.closest(".guest-row");
+  const date = row.dataset.date;
+  const meal = row.dataset.meal;
+  const input = row.querySelector(".guest-input");
+  const raw = input.value.trim();
+  const n = raw === "" ? 0 : parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 0 || n > 99) {
+    alert(t("guestCountPlaceholder"));
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await API.put("/reservations/guest-count", { date, mealType: meal, guestCount: n });
+    showToast(t("guestCountSaved"));
+    loadWeek(currentWeekAnchor);
+  } catch (err) {
+    alert(err.message);
+    loadWeek(currentWeekAnchor);
+  }
 }
 
 // 도급회사(단체) 계정용: 토글 버튼 대신 인원수를 숫자로 입력해 신청/수정/취소(0 입력)합니다.

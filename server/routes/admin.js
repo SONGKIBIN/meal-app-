@@ -7,6 +7,7 @@ const Employee = require("../models/Employee");
 const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const Announcement = require("../models/Announcement");
+const Holiday = require("../models/Holiday");
 const { requireAuth, requireAdmin } = require("../middleware/auth");
 const {
   getMonthDates,
@@ -15,6 +16,9 @@ const {
   LUNCH_DEADLINE_MINUTE,
   DINNER_DEADLINE_HOUR,
   DINNER_DEADLINE_MINUTE,
+  FIXED_HOLIDAYS_MMDD,
+  fixedHolidayLabel,
+  isWeekendDate,
 } = require("../utils/dateUtil");
 
 const router = express.Router();
@@ -235,7 +239,16 @@ router.get("/reservations", async (req, res) => {
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
   const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
-  res.json({ date, lunch, dinner, lunchCount: sumHeadcount(lunch), dinnerCount: sumHeadcount(dinner) });
+  const sumGuest = (list) => list.reduce((s, r) => s + (r.guestCount ?? 0), 0);
+  res.json({
+    date,
+    lunch,
+    dinner,
+    lunchCount: sumHeadcount(lunch),
+    dinnerCount: sumHeadcount(dinner),
+    lunchGuestCount: sumGuest(lunch),
+    dinnerGuestCount: sumGuest(dinner),
+  });
 });
 
 // 특정 날짜의 "미신청 인원"을 계산합니다.
@@ -297,7 +310,7 @@ router.get("/reservations/pending", async (req, res) => {
 // 관리자 강제 변경 (마감시간/당일취소 제한을 무시하고 신청 또는 취소 처리)
 router.put("/reservations/override", async (req, res) => {
   try {
-    const { employeeId, date, mealType, status, headcount } = req.body;
+    const { employeeId, date, mealType, status, headcount, guestCount } = req.body;
     if (!DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
@@ -312,6 +325,9 @@ router.put("/reservations/override", async (req, res) => {
     };
     const n = parseInt(headcount, 10);
     if (Number.isInteger(n) && n >= 0) set.headcount = n;
+    const g = parseInt(guestCount, 10);
+    if (Number.isInteger(g) && g >= 0) set.guestCount = g;
+    if (status === "cancelled" && !Number.isInteger(g)) set.guestCount = 0;
 
     const updated = await Reservation.findOneAndUpdate(
       { employeeId, date, mealType },
@@ -327,21 +343,25 @@ router.put("/reservations/override", async (req, res) => {
 
 /* ---------------------------- 집계 ---------------------------- */
 
-// 신청 내역(rows)을 개인 직원 / 도급직원으로 나누어 인원수를 합산합니다.
+// 신청 내역(rows)을 개인 직원 / 도급직원 / 내방객(손님)으로 나누어 인원수를 합산합니다.
 // Reservation에는 구분(employeeType)이 저장되어 있지 않아 Employee 컬렉션을 조회해 판별하며,
-// 이미 삭제되었거나 찾을 수 없는 사번은 개인 직원으로 취급합니다(합계는 항상 원래 총합과 같습니다).
+// 이미 삭제되었거나 찾을 수 없는 사번은 개인 직원으로 취급합니다.
+// 내방객(guestCount)은 신청자 본인과 별도로 함께 식사하는 손님 인원으로, 개인/도급 인원과 구분해서 집계하되
+// 실제 조리해야 할 전체 식수(total)에는 포함합니다.
 async function splitByEmployeeType(rows) {
   const ids = [...new Set(rows.map((r) => r.employeeId))];
   const emps = ids.length ? await Employee.find({ employeeId: { $in: ids } }, { employeeId: 1, employeeType: 1 }).lean() : [];
   const typeMap = new Map(emps.map((e) => [e.employeeId, e.employeeType]));
   let individual = 0;
   let contractor = 0;
+  let guest = 0;
   for (const r of rows) {
     const hc = r.headcount ?? 1;
+    guest += r.guestCount ?? 0;
     if (typeMap.get(r.employeeId) === "contractor") contractor += hc;
     else individual += hc;
   }
-  return { individual, contractor, total: individual + contractor };
+  return { individual, contractor, guest, total: individual + contractor + guest };
 }
 
 router.get("/summary/daily", async (req, res) => {
@@ -350,19 +370,27 @@ router.get("/summary/daily", async (req, res) => {
   const rows = await Reservation.find({ date, status: "applied" }).lean();
   const lunch = rows.filter((r) => r.mealType === "lunch");
   const dinner = rows.filter((r) => r.mealType === "dinner");
-  const [lunchSplit, dinnerSplit, pending] = await Promise.all([
+  const [lunchSplit, dinnerSplit, pending, customHoliday] = await Promise.all([
     splitByEmployeeType(lunch),
     splitByEmployeeType(dinner),
     computePendingSummary(date),
+    Holiday.findOne({ date }).lean(),
   ]);
+  const fixedLabel = fixedHolidayLabel(date);
+  const holidayLabel = customHoliday ? customHoliday.label || "" : fixedLabel;
+  const dayType = customHoliday || fixedLabel ? "holiday" : isWeekendDate(date) ? "weekend" : "weekday";
   res.json({
     date,
+    dayType,
+    holidayLabel: holidayLabel || "",
     lunchCount: lunchSplit.total,
     dinnerCount: dinnerSplit.total,
     individualLunchCount: lunchSplit.individual,
     contractorLunchCount: lunchSplit.contractor,
+    guestLunchCount: lunchSplit.guest,
     individualDinnerCount: dinnerSplit.individual,
     contractorDinnerCount: dinnerSplit.contractor,
+    guestDinnerCount: dinnerSplit.guest,
     pendingLunchCount: pending.pendingLunchCount,
     pendingDinnerCount: pending.pendingDinnerCount,
     pendingLunch: pending.pendingLunch,
@@ -382,7 +410,18 @@ router.get("/summary/monthly", async (req, res) => {
   const byDate = {};
   for (const d of dates) byDate[d] = { date: d, lunchCount: 0, dinnerCount: 0 };
   for (const r of rows) {
-    byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"] += r.headcount ?? 1;
+    const n = (r.headcount ?? 1) + (r.guestCount ?? 0);
+    byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"] += n;
+  }
+  // 월간 표에서도 주말/공휴일을 빨간색으로 구분해서 보여주기 위한 정보입니다.
+  const customHolidays = await Holiday.find({ date: { $in: dates } }).lean();
+  const customHolidayMap = new Map(customHolidays.map((h) => [h.date, h.label || ""]));
+  for (const d of dates) {
+    const customLabel = customHolidayMap.get(d);
+    const fixedLabel = fixedHolidayLabel(d);
+    const holidayLabel = customLabel !== undefined ? customLabel : fixedLabel;
+    byDate[d].dayType = customLabel !== undefined || fixedLabel ? "holiday" : isWeekendDate(d) ? "weekend" : "weekday";
+    byDate[d].holidayLabel = holidayLabel || "";
   }
   const days = dates.map((d) => byDate[d]);
   const lunchRows = rows.filter((r) => r.mealType === "lunch");
@@ -395,8 +434,10 @@ router.get("/summary/monthly", async (req, res) => {
     totalDinner: dinnerSplit.total,
     individualTotalLunch: lunchSplit.individual,
     contractorTotalLunch: lunchSplit.contractor,
+    guestTotalLunch: lunchSplit.guest,
     individualTotalDinner: dinnerSplit.individual,
     contractorTotalDinner: dinnerSplit.contractor,
+    guestTotalDinner: dinnerSplit.guest,
   });
 });
 
@@ -417,6 +458,7 @@ router.get("/export/daily", async (req, res) => {
       { header: "이름", key: "employeeName", width: 14 },
       { header: "부서", key: "department", width: 18 },
       { header: "인원수", key: "headcount", width: 10 },
+      { header: "내방객", key: "guestCount", width: 10 },
       { header: "관리자수정", key: "modifiedByAdmin", width: 12 },
     ];
     ws.getRow(1).font = { bold: true };
@@ -428,14 +470,23 @@ router.get("/export/daily", async (req, res) => {
         employeeName: r.employeeName,
         department: r.department,
         headcount: r.headcount ?? 1,
+        guestCount: r.guestCount ?? 0,
         modifiedByAdmin: r.modifiedByAdmin ? "O" : "",
       });
     });
     const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
-    const lunchCount = sumHeadcount(rows.filter((r) => r.mealType === "lunch"));
-    const dinnerCount = sumHeadcount(rows.filter((r) => r.mealType === "dinner"));
+    const sumGuest = (list) => list.reduce((s, r) => s + (r.guestCount ?? 0), 0);
+    const lunchRowsX = rows.filter((r) => r.mealType === "lunch");
+    const dinnerRowsX = rows.filter((r) => r.mealType === "dinner");
+    const lunchEmpCount = sumHeadcount(lunchRowsX);
+    const dinnerEmpCount = sumHeadcount(dinnerRowsX);
+    const lunchGuestCount = sumGuest(lunchRowsX);
+    const dinnerGuestCount = sumGuest(dinnerRowsX);
     ws.addRow({});
-    ws.addRow({ date: "합계", mealType: `중식 ${lunchCount}명 / 석식 ${dinnerCount}명` });
+    ws.addRow({
+      date: "합계",
+      mealType: `중식 ${lunchEmpCount + lunchGuestCount}명(직원 ${lunchEmpCount}명 + 내방객 ${lunchGuestCount}명) / 석식 ${dinnerEmpCount + dinnerGuestCount}명(직원 ${dinnerEmpCount}명 + 내방객 ${dinnerGuestCount}명)`,
+    });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=meal_${date}.xlsx`);
@@ -457,26 +508,35 @@ router.get("/export/monthly", async (req, res) => {
 
     const wb = new ExcelJS.Workbook();
 
-    // 요약 시트: 일자별 집계
+    // 요약 시트: 일자별 집계 (내방객 포함 전체 식수)
     const summary = wb.addWorksheet("월간 집계");
     summary.columns = [
       { header: "날짜", key: "date", width: 14 },
       { header: "중식 인원", key: "lunch", width: 12 },
+      { header: "중식 내방객", key: "lunchGuest", width: 12 },
       { header: "석식 인원", key: "dinner", width: 12 },
+      { header: "석식 내방객", key: "dinnerGuest", width: 12 },
     ];
     summary.getRow(1).font = { bold: true };
     const byDate = {};
-    for (const d of dates) byDate[d] = { lunch: 0, dinner: 0 };
-    for (const r of rows) byDate[r.date][r.mealType] += r.headcount ?? 1;
+    for (const d of dates) byDate[d] = { lunch: 0, lunchGuest: 0, dinner: 0, dinnerGuest: 0 };
+    for (const r of rows) {
+      byDate[r.date][r.mealType] += r.headcount ?? 1;
+      byDate[r.date][r.mealType === "lunch" ? "lunchGuest" : "dinnerGuest"] += r.guestCount ?? 0;
+    }
     let totalLunch = 0;
+    let totalLunchGuest = 0;
     let totalDinner = 0;
+    let totalDinnerGuest = 0;
     for (const d of dates) {
-      summary.addRow({ date: d, lunch: byDate[d].lunch, dinner: byDate[d].dinner });
+      summary.addRow({ date: d, lunch: byDate[d].lunch, lunchGuest: byDate[d].lunchGuest, dinner: byDate[d].dinner, dinnerGuest: byDate[d].dinnerGuest });
       totalLunch += byDate[d].lunch;
+      totalLunchGuest += byDate[d].lunchGuest;
       totalDinner += byDate[d].dinner;
+      totalDinnerGuest += byDate[d].dinnerGuest;
     }
     summary.addRow({});
-    summary.addRow({ date: "합계", lunch: totalLunch, dinner: totalDinner });
+    summary.addRow({ date: "합계", lunch: totalLunch, lunchGuest: totalLunchGuest, dinner: totalDinner, dinnerGuest: totalDinnerGuest });
 
     // 상세 시트: 전체 신청 내역
     const detail = wb.addWorksheet("상세 내역");
@@ -487,6 +547,7 @@ router.get("/export/monthly", async (req, res) => {
       { header: "이름", key: "employeeName", width: 14 },
       { header: "부서", key: "department", width: 18 },
       { header: "인원수", key: "headcount", width: 10 },
+      { header: "내방객", key: "guestCount", width: 10 },
     ];
     detail.getRow(1).font = { bold: true };
     rows
@@ -499,6 +560,7 @@ router.get("/export/monthly", async (req, res) => {
           employeeName: r.employeeName,
           department: r.department,
           headcount: r.headcount ?? 1,
+          guestCount: r.guestCount ?? 0,
         });
       });
 
@@ -551,6 +613,37 @@ router.put("/settings", async (req, res) => {
     { upsert: true, new: true }
   );
   res.json({ settings: s });
+});
+
+/* ---------------------------- 공휴일 관리 ---------------------------- */
+// 신정/삼일절 등 매년 날짜가 고정된 양력 공휴일은 자동으로 빨간색으로 표시되며 별도 등록이 필요 없습니다.
+// 설날/추석 연휴처럼 해마다 날짜가 바뀌는 공휴일이나 대체공휴일·임시공휴일만 이 화면에서 등록하면 됩니다.
+
+router.get("/holidays", async (req, res) => {
+  const list = await Holiday.find({}).sort({ date: 1 }).lean();
+  res.json({ holidays: list, fixedHolidays: FIXED_HOLIDAYS_MMDD });
+});
+
+router.post("/holidays", async (req, res) => {
+  try {
+    const { date, label } = req.body;
+    if (!DATE_RE.test(date || "")) return res.status(400).json({ error: "날짜는 YYYY-MM-DD 형식으로 입력해주세요." });
+    const h = await Holiday.findOneAndUpdate(
+      { date },
+      { $set: { date, label: label ? String(label).trim().slice(0, 60) : "" } },
+      { upsert: true, new: true }
+    );
+    res.json({ holiday: h });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "공휴일 등록 중 오류가 발생했습니다." });
+  }
+});
+
+router.delete("/holidays/:id", async (req, res) => {
+  const h = await Holiday.findByIdAndDelete(req.params.id);
+  if (!h) return res.status(404).json({ error: "공휴일을 찾을 수 없습니다." });
+  res.json({ ok: true });
 });
 
 /* ---------------------------- 공지사항 관리 ---------------------------- */

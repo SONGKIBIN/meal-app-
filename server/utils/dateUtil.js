@@ -62,6 +62,33 @@ function getWeekDates(dateStr) {
   return week;
 }
 
+/**
+ * 매년 날짜가 고정된 양력 공휴일(MM-DD)입니다. 설날/추석처럼 음력 기준이라 해마다 날짜가 바뀌는 공휴일이나
+ * 그 해에만 지정되는 대체공휴일·임시공휴일은 관리자가 설정 화면에서 직접 등록합니다 (Holiday 모델 참고).
+ */
+const FIXED_HOLIDAYS_MMDD = {
+  "01-01": "신정",
+  "03-01": "삼일절",
+  "05-05": "어린이날",
+  "06-06": "현충일",
+  "08-15": "광복절",
+  "10-03": "개천절",
+  "10-09": "한글날",
+  "12-25": "크리스마스",
+};
+
+function fixedHolidayLabel(dateStr) {
+  return FIXED_HOLIDAYS_MMDD[dateStr.slice(5)] || "";
+}
+
+/**
+ * 주말(토/일) 여부를 "YYYY-MM-DD" 문자열로 판별합니다.
+ */
+function isWeekendDate(dateStr) {
+  const wd = weekdayOf(dateStr);
+  return wd === 0 || wd === 6;
+}
+
 function getMonthDates(year, month) {
   // month: 1~12
   const first = `${year}-${pad(month)}-01`;
@@ -125,4 +152,7 @@ module.exports = {
   LUNCH_DEADLINE_MINUTE,
   DINNER_DEADLINE_HOUR,
   DINNER_DEADLINE_MINUTE,
+  FIXED_HOLIDAYS_MMDD,
+  fixedHolidayLabel,
+  isWeekendDate,
 };

@@ -131,23 +131,26 @@ const AdminUI = {
           <td>${escapeHtml(r.employeeName)}</td>
           <td>${escapeHtml(r.department)}</td>
           <td>${r.headcount ?? 1}</td>
+          <td>${r.guestCount ? r.guestCount : "-"}</td>
           <td>${r.modifiedByAdmin ? "O" : ""}</td>
           <td><button class="danger" data-cancel-id="${escapeHtml(r.employeeId)}" data-meal="${mealType}">${t("cancel")}</button></td>
         </tr>`).join("");
       listEl.innerHTML = `
         <div class="summary-cards">
           <div class="stat"><div class="num">${data.lunchCount}</div><div class="lbl">${t("lunchCount")}</div></div>
+          <div class="stat"><div class="num">${data.lunchGuestCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("lunch")}</div></div>
           <div class="stat"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinnerCount")}</div></div>
+          <div class="stat"><div class="num">${data.dinnerGuestCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("dinner")}</div></div>
         </div>
         <h3>${t("lunch")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>Admin</th><th></th></tr></thead>
-          <tbody>${rowsHtml(data.lunch, "lunch") || `<tr><td colspan="6">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>${t("guestStaffLabel")}</th><th>Admin</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.lunch, "lunch") || `<tr><td colspan="7">${t("noData")}</td></tr>`}</tbody>
         </table></div>
         <h3>${t("dinner")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>Admin</th><th></th></tr></thead>
-          <tbody>${rowsHtml(data.dinner, "dinner") || `<tr><td colspan="6">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>${t("guestStaffLabel")}</th><th>Admin</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.dinner, "dinner") || `<tr><td colspan="7">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
       listEl.querySelectorAll("[data-cancel-id]").forEach((btn) => {
@@ -230,7 +233,7 @@ const AdminUI = {
           <button class="secondary" id="dailyExcelBtn">${t("downloadExcel")}</button>
           <button class="secondary" id="dailyPrintBtn">${t("print")}</button>
         </div>
-        <h2>${date}</h2>
+        <h2 id="dailyDateHeading">${date}</h2>
         <div id="dailyContent">${t("loading")}</div>
       </div>
     `;
@@ -244,13 +247,21 @@ const AdminUI = {
     const el = document.getElementById("dailyContent");
     try {
       const data = await API.get(`/admin/summary/daily?date=${this.dailyDate}`);
+      const heading = document.getElementById("dailyDateHeading");
+      if (heading) {
+        const tag = data.dayType && data.dayType !== "weekday"
+          ? ` <span class="badge" style="background:#fee2e2;color:#dc2626;">${escapeHtml(data.holidayLabel) || t("weekendLabel")}</span>`
+          : "";
+        heading.innerHTML = `${escapeHtml(this.dailyDate)}${tag}`;
+      }
       const appliedRows = (list) => list.map((r) => `
         <tr>
           <td>${escapeHtml(r.employeeId)}</td>
           <td>${escapeHtml(r.employeeName)}</td>
           <td>${escapeHtml(r.department)}</td>
           <td>${r.headcount ?? 1}</td>
-        </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
+          <td>${r.guestCount ? r.guestCount : "-"}</td>
+        </tr>`).join("") || `<tr><td colspan="5">${t("noData")}</td></tr>`;
       const pendingRows = (list) => list.map((e) => `
         <tr>
           <td>${escapeHtml(e.employeeId)}</td>
@@ -260,6 +271,11 @@ const AdminUI = {
         </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
       const listTable = (rowsHtml) => `
         <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>${t("guestStaffLabel")}</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table></div>`;
+      const pendingTable = (rowsHtml) => `
+        <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table></div>`;
@@ -267,19 +283,21 @@ const AdminUI = {
         <div class="summary-cards">
           <div class="stat"><div class="num">${data.individualLunchCount}</div><div class="lbl">${t("individualStaffLabel")} ${t("lunch")}</div></div>
           <div class="stat"><div class="num">${data.contractorLunchCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat"><div class="num">${data.guestLunchCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("lunch")}</div></div>
           <div class="stat highlight"><div class="num">${data.lunchCount}</div><div class="lbl">${t("lunch")} ${t("total")}</div></div>
           <div class="stat"><div class="num">${data.individualDinnerCount}</div><div class="lbl">${t("individualStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat"><div class="num">${data.contractorDinnerCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat"><div class="num">${data.guestDinnerCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat highlight"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
         </div>
         <h3>${t("lunch")} ${t("applicantListLabel")} (${data.lunchCount})</h3>
         ${listTable(appliedRows(data.lunch))}
         <h3>${t("lunch")} ${t("nonApplicantListLabel")} (${data.pendingLunchCount})</h3>
-        ${listTable(pendingRows(data.pendingLunch))}
+        ${pendingTable(pendingRows(data.pendingLunch))}
         <h3>${t("dinner")} ${t("applicantListLabel")} (${data.dinnerCount})</h3>
         ${listTable(appliedRows(data.dinner))}
         <h3>${t("dinner")} ${t("nonApplicantListLabel")} (${data.pendingDinnerCount})</h3>
-        ${listTable(pendingRows(data.pendingDinner))}
+        ${pendingTable(pendingRows(data.pendingDinner))}
       `;
     } catch (err) {
       el.textContent = err.message;
@@ -318,14 +336,21 @@ const AdminUI = {
         <div class="summary-cards">
           <div class="stat"><div class="num">${data.individualTotalLunch}</div><div class="lbl">${t("individualStaffLabel")} ${t("lunch")}</div></div>
           <div class="stat"><div class="num">${data.contractorTotalLunch}</div><div class="lbl">${t("contractorStaffLabel")} ${t("lunch")}</div></div>
+          <div class="stat"><div class="num">${data.guestTotalLunch}</div><div class="lbl">${t("guestStaffLabel")} ${t("lunch")}</div></div>
           <div class="stat highlight"><div class="num">${data.totalLunch}</div><div class="lbl">${t("lunch")} ${t("total")}</div></div>
           <div class="stat"><div class="num">${data.individualTotalDinner}</div><div class="lbl">${t("individualStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat"><div class="num">${data.contractorTotalDinner}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
+          <div class="stat"><div class="num">${data.guestTotalDinner}</div><div class="lbl">${t("guestStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat highlight"><div class="num">${data.totalDinner}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
         </div>
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("date")}</th><th>${t("lunchCount")}</th><th>${t("dinnerCount")}</th></tr></thead>
-          <tbody>${data.days.map((d) => `<tr><td>${d.date}</td><td>${d.lunchCount}</td><td>${d.dinnerCount}</td></tr>`).join("")}</tbody>
+          <tbody>${data.days.map((d) => {
+            const isOff = d.dayType && d.dayType !== "weekday";
+            const style = isOff ? ' style="color:#dc2626;font-weight:700;"' : "";
+            const tag = d.dayType === "holiday" && d.holidayLabel ? ` (${escapeHtml(d.holidayLabel)})` : "";
+            return `<tr${style}><td>${d.date}${tag}</td><td>${d.lunchCount}</td><td>${d.dinnerCount}</td></tr>`;
+          }).join("")}</tbody>
         </table></div>
       `;
     } catch (err) {
@@ -770,6 +795,17 @@ const AdminUI = {
         </div>
       </div>
       <div class="card">
+        <h2>${t("holidayManage")}</h2>
+        <p class="deadline-note">${t("holidayManageHelp")}</p>
+        <div class="toolbar">
+          <label>${t("holidayDate")}</label>
+          <input type="date" id="holidayDateInput">
+          <input type="text" id="holidayLabelInput" placeholder="${t("holidayLabelPlaceholder")}" style="max-width:200px;">
+          <button id="addHolidayBtn">${t("addHoliday")}</button>
+        </div>
+        <div id="holidayList">${t("loading")}</div>
+      </div>
+      <div class="card">
         <h2>${t("announcementManage")}</h2>
         <textarea id="announcementInput" rows="3" style="width:100%;" placeholder="${t("announcementPlaceholder")}"></textarea>
         <div class="toolbar" style="margin-top:8px;">
@@ -784,9 +820,58 @@ const AdminUI = {
       </div>
     `;
     document.getElementById("saveDeadlineBtn").addEventListener("click", () => this.saveDeadline());
+    document.getElementById("addHolidayBtn").addEventListener("click", () => this.addHoliday());
     document.getElementById("postAnnouncementBtn").addEventListener("click", () => this.postAnnouncement());
     document.getElementById("backupBtn").addEventListener("click", () => downloadFile("/admin/backup", `meal_app_backup_${todayStr()}.json`));
-    await Promise.all([this.loadDeadline(), this.loadAnnouncements()]);
+    await Promise.all([this.loadDeadline(), this.loadHolidays(), this.loadAnnouncements()]);
+  },
+
+  async loadHolidays() {
+    const el = document.getElementById("holidayList");
+    try {
+      const data = await API.get("/admin/holidays");
+      el.innerHTML = data.holidays.length
+        ? `<div class="table-wrap"><table class="data-table">
+            <thead><tr><th>${t("holidayDate")}</th><th>${t("holidayLabelInput")}</th><th></th></tr></thead>
+            <tbody>${data.holidays.map((h) => `
+              <tr>
+                <td>${escapeHtml(h.date)}</td>
+                <td>${escapeHtml(h.label || "-")}</td>
+                <td><button class="danger" data-del-holiday="${h._id}">${t("deleteHoliday")}</button></td>
+              </tr>
+            `).join("")}</tbody>
+          </table></div>`
+        : `<p class="deadline-note">${t("holidayListEmpty")}</p>`;
+      el.querySelectorAll("[data-del-holiday]").forEach((b) => b.addEventListener("click", () => this.deleteHoliday(b.dataset.delHoliday)));
+    } catch (err) {
+      el.textContent = err.message;
+    }
+  },
+
+  async addHoliday() {
+    const date = document.getElementById("holidayDateInput").value;
+    const label = document.getElementById("holidayLabelInput").value.trim();
+    if (!date) return;
+    try {
+      await API.post("/admin/holidays", { date, label });
+      document.getElementById("holidayDateInput").value = "";
+      document.getElementById("holidayLabelInput").value = "";
+      showToast(t("holidayAdded"));
+      this.loadHolidays();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async deleteHoliday(id) {
+    if (!confirm(t("confirmDeleteHoliday"))) return;
+    try {
+      await API.del(`/admin/holidays/${id}`);
+      showToast(t("holidayDeleted"));
+      this.loadHolidays();
+    } catch (err) {
+      alert(err.message);
+    }
   },
 
   async loadDeadline() {
