@@ -196,6 +196,7 @@ const I18N = {
     scopeDepartmentsLabel: "조회 가능 부서",
     noManagedDepartments: "조회 가능한 부서가 없습니다. 관리자에게 담당 부서 지정을 요청해주세요.",
     managerEmployeesNotice: "담당 부서 소속 직원의 정보만 수정할 수 있습니다. 인원 추가·삭제는 관리자만 할 수 있습니다.",
+    add: "추가",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -391,6 +392,7 @@ const I18N = {
     scopeDepartmentsLabel: "Viewable Departments",
     noManagedDepartments: "No viewable departments assigned. Please ask an admin to assign managed departments.",
     managerEmployeesNotice: "You can only edit employees in your managed departments. Adding or deleting employees requires an admin.",
+    add: "Add",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -587,6 +589,7 @@ const I18N = {
     scopeDepartmentsLabel: "可查看部门",
     noManagedDepartments: "尚未分配可查看的部门，请联系管理员指定负责部门。",
     managerEmployeesNotice: "只能修改所负责部门内的员工信息，新增或删除员工需由管理员处理。",
+    add: "添加",
   },
 };
 

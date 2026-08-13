@@ -618,6 +618,17 @@ const AdminUI = {
       }
     }
     const deptOptionsHtml = this.departmentsCache.map((d) => `<option value="${escapeHtml(d)}">`).join("");
+    const currentManaged = emp && emp.managedDepartments ? emp.managedDepartments : [];
+    // 담당 부서는 체크박스로 여러 개를 자유롭게 선택할 수 있습니다 (예전에는 쉼표로 구분한 글자 입력칸이었는데,
+    // 자동완성 목록에서 하나를 고르면 입력해둔 다른 부서명까지 통째로 지워지는 문제가 있어 체크박스 방식으로 바꿨습니다).
+    const deptCheckboxesHtml = this.departmentsCache.length
+      ? this.departmentsCache.map((d) => `
+          <label class="dept-check-item">
+            <input type="checkbox" class="mManagedDeptCheck" value="${escapeHtml(d)}" ${currentManaged.includes(d) ? "checked" : ""}>
+            ${escapeHtml(d)}
+          </label>
+        `).join("")
+      : `<span class="login-help">${t("noManagedDepartments")}</span>`;
     openModal(`
       <h3>${emp ? t("edit") : t("addEmployee")}</h3>
       <datalist id="mDeptListOptions">${deptOptionsHtml}</datalist>
@@ -633,8 +644,12 @@ const AdminUI = {
       </div>
       <div class="field" id="mManagedDeptField" style="${emp && emp.role === "manager" ? "" : "display:none;"}">
         <label>${t("managedDepartments")}</label>
-        <input id="mManagedDept" list="mDeptListOptions" value="${emp && emp.managedDepartments ? escapeHtml(emp.managedDepartments.join(", ")) : ""}" placeholder="${t("managedDepartmentsPlaceholder")}">
         <div class="login-help">${t("managedDepartmentsHelp")}</div>
+        <div class="dept-check-list" id="mManagedDeptChecks">${deptCheckboxesHtml}</div>
+        <div class="toolbar" style="margin-top:6px;">
+          <input id="mManagedDeptExtra" list="mDeptListOptions" placeholder="${t("managedDepartmentsPlaceholder")}" style="flex:1;">
+          <button type="button" class="secondary" id="mManagedDeptAddBtn">${t("add")}</button>
+        </div>
       </div>
       <div class="field"><label>${t("employeeType")}</label>
         <select id="mEmployeeType">
@@ -659,12 +674,36 @@ const AdminUI = {
     document.getElementById("mRole").addEventListener("change", (e) => {
       document.getElementById("mManagedDeptField").style.display = e.target.value === "manager" ? "" : "none";
     });
+    // 체크박스 목록에 아직 없는 부서명(신규 부서 등)은 입력 후 "추가" 버튼으로 새 체크박스를 만들어줍니다.
+    const addManagedDeptCheckbox = (value) => {
+      const name = value.trim();
+      if (!name) return;
+      const list = document.getElementById("mManagedDeptChecks");
+      const already = [...list.querySelectorAll(".mManagedDeptCheck")].some((cb) => cb.value === name);
+      if (already) return;
+      const label = document.createElement("label");
+      label.className = "dept-check-item";
+      label.innerHTML = `<input type="checkbox" class="mManagedDeptCheck" value="${escapeHtml(name)}" checked> ${escapeHtml(name)}`;
+      list.appendChild(label);
+    };
+    document.getElementById("mManagedDeptAddBtn").addEventListener("click", () => {
+      const input = document.getElementById("mManagedDeptExtra");
+      addManagedDeptCheckbox(input.value);
+      input.value = "";
+      input.focus();
+    });
+    document.getElementById("mManagedDeptExtra").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.getElementById("mManagedDeptAddBtn").click();
+      }
+    });
     document.getElementById("mSaveBtn").addEventListener("click", async () => {
       const employeeId = document.getElementById("mEmpId").value.trim();
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
       const role = document.getElementById("mRole").value;
-      const managedDepartments = document.getElementById("mManagedDept").value.trim();
+      const managedDepartments = [...document.querySelectorAll(".mManagedDeptCheck:checked")].map((cb) => cb.value);
       const employeeType = document.getElementById("mEmployeeType").value;
       const totalHeadcount = document.getElementById("mTotalHeadcount").value.trim();
       try {
