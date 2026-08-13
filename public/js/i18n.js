@@ -197,6 +197,7 @@ const I18N = {
     noManagedDepartments: "조회 가능한 부서가 없습니다. 관리자에게 담당 부서 지정을 요청해주세요.",
     managerEmployeesNotice: "담당 부서 소속 직원의 정보만 수정할 수 있습니다. 인원 추가·삭제는 관리자만 할 수 있습니다.",
     add: "추가",
+    contractorApplyPrompt: "신청할 인원수를 입력하세요.",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -393,6 +394,7 @@ const I18N = {
     noManagedDepartments: "No viewable departments assigned. Please ask an admin to assign managed departments.",
     managerEmployeesNotice: "You can only edit employees in your managed departments. Adding or deleting employees requires an admin.",
     add: "Add",
+    contractorApplyPrompt: "Enter the headcount to apply.",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -590,6 +592,7 @@ const I18N = {
     noManagedDepartments: "尚未分配可查看的部门，请联系管理员指定负责部门。",
     managerEmployeesNotice: "只能修改所负责部门内的员工信息，新增或删除员工需由管理员处理。",
     add: "添加",
+    contractorApplyPrompt: "请输入要申请的人数。",
   },
 };
 

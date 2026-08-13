@@ -132,12 +132,13 @@ const ManagerUI = {
     const el = document.getElementById("mgrPendingLists");
     try {
       const data = await API.get(`/manager/reservations/pending?date=${this.statusDate}`);
-      const rowsHtml = (rows) => rows.map((e) => `
+      const rowsHtml = (rows, mealType) => rows.map((e) => `
         <tr>
           <td>${escapeHtml(e.employeeId)}</td>
           <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
           <td>${escapeHtml(e.department)}</td>
           <td>${e.shortfall}${e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) ? ` <span class="deadline-note" style="display:inline;">(${t("appliedOfTotal", e.appliedHeadcount, e.totalHeadcount)})</span>` : ""}</td>
+          <td><button data-apply-id="${escapeHtml(e.employeeId)}" data-meal="${mealType}" data-target="${e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) ? e.totalHeadcount : e.shortfall}" data-contractor="${e.employeeType === "contractor" ? "1" : "0"}">${t("apply")}</button></td>
         </tr>`).join("");
       el.innerHTML = `
         <div class="summary-cards">
@@ -146,15 +147,31 @@ const ManagerUI = {
         </div>
         <h3>${t("pendingLunch")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
-          <tbody>${rowsHtml(data.pendingLunch) || `<tr><td colspan="4">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.pendingLunch, "lunch") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
         </table></div>
         <h3>${t("pendingDinner")}</h3>
         <div class="table-wrap"><table class="data-table">
-          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th></tr></thead>
-          <tbody>${rowsHtml(data.pendingDinner) || `<tr><td colspan="4">${t("noData")}</td></tr>`}</tbody>
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th></th></tr></thead>
+          <tbody>${rowsHtml(data.pendingDinner, "dinner") || `<tr><td colspan="5">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
+      el.querySelectorAll("[data-apply-id]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const employeeId = btn.dataset.applyId;
+          const mealType = btn.dataset.meal;
+          const isContractor = btn.dataset.contractor === "1";
+          let headcount;
+          if (isContractor) {
+            const raw = prompt(t("contractorApplyPrompt"), btn.dataset.target);
+            if (raw === null) return;
+            const n = parseInt(raw.trim(), 10);
+            if (!Number.isInteger(n) || n < 0) return;
+            headcount = n;
+          }
+          this.overrideSet(employeeId, mealType, "applied", headcount);
+        });
+      });
     } catch (err) {
       el.textContent = err.message;
     }
