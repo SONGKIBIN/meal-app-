@@ -210,6 +210,55 @@ router.get("/employees/import-template", async (req, res) => {
   res.end();
 });
 
+// 직원 명단 엑셀 다운로드 (직원 관리 화면의 상태 필터(전체/재직자/퇴직자)를 그대로 반영합니다)
+router.get("/employees/export", async (req, res) => {
+  try {
+    const { status } = req.query;
+    const query = {};
+    if (status === "active") query.active = true;
+    else if (status === "inactive") query.active = false;
+    const list = await Employee.find(query).sort({ department: 1, name: 1 }).lean();
+
+    const roleLabel = (role) => (role === "admin" ? "관리자" : role === "manager" ? "운영자" : "일반직원");
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("직원 목록");
+    ws.columns = [
+      { header: "사번", key: "employeeId", width: 14 },
+      { header: "이름", key: "name", width: 14 },
+      { header: "부서", key: "department", width: 20 },
+      { header: "권한", key: "role", width: 12 },
+      { header: "구분", key: "employeeType", width: 10 },
+      { header: "총원(TO)", key: "totalHeadcount", width: 10 },
+      { header: "담당 부서(운영자)", key: "managedDepartments", width: 24 },
+      { header: "재직여부", key: "active", width: 10 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    list.forEach((e) => {
+      ws.addRow({
+        employeeId: e.employeeId,
+        name: e.name,
+        department: e.department,
+        role: roleLabel(e.role),
+        employeeType: e.employeeType === "contractor" ? "도급" : "개인",
+        totalHeadcount: e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) ? e.totalHeadcount : "",
+        managedDepartments: e.role === "manager" && Array.isArray(e.managedDepartments) ? e.managedDepartments.join(", ") : "",
+        active: e.active ? "재직" : "퇴직",
+      });
+    });
+    ws.addRow({});
+    ws.addRow({ employeeId: "합계", name: `${list.length}명` });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=employee_list_${todayKSTStr()}.xlsx`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "엑셀 생성 중 오류가 발생했습니다." });
+  }
+});
+
 // 엑셀 일괄 등록 (열 헤더: 사번, 이름, 부서)
 router.post("/employees/import", upload.single("file"), async (req, res) => {
   try {

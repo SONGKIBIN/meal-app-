@@ -385,9 +385,11 @@ const AdminUI = {
       </div>
       <div class="card hidden" id="empPendingRequestsCard"></div>
       <div class="card">
-        <div class="toolbar">
+        <div class="toolbar no-print">
           <button id="addEmpBtn">${t("addEmployee")}</button>
           <div class="spacer"></div>
+          <button class="secondary" id="empExcelBtn">${t("downloadExcel")}</button>
+          <button class="secondary" id="empPrintBtn">${t("print")}</button>
           <button class="secondary" id="downloadTemplateBtn">${t("downloadTemplate")}</button>
         </div>
         <div class="toolbar">
@@ -419,6 +421,10 @@ const AdminUI = {
       </div>
     `;
     document.getElementById("addEmpBtn").addEventListener("click", () => this.openEmployeeModal());
+    document.getElementById("empExcelBtn").addEventListener("click", () =>
+      downloadFile(`/admin/employees/export?status=${this.empStatusFilter}`, `employee_list_${todayStr()}.xlsx`)
+    );
+    document.getElementById("empPrintBtn").addEventListener("click", () => window.print());
     document.getElementById("downloadTemplateBtn").addEventListener("click", () => downloadFile("/admin/employees/import-template", "employee_template.xlsx"));
     document.getElementById("importUploadBtn").addEventListener("click", () => this.uploadImport());
     document.getElementById("empSearchInput").addEventListener("input", (e) => {
