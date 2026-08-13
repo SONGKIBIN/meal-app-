@@ -48,13 +48,28 @@ function parseTotalHeadcount(raw, employeeType) {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+// role 값을 안전하게 정규화합니다 (user/admin/manager 외 값은 모두 user로 처리).
+function normalizeRole(role) {
+  if (role === "admin") return "admin";
+  if (role === "manager") return "manager";
+  return "user";
+}
+
+// 담당 부서 목록(쉼표 구분 문자열 또는 배열)을 정리된 문자열 배열로 변환합니다. role이 manager가 아니면 빈 배열로 저장합니다.
+function parseManagedDepartments(raw, role) {
+  if (role !== "manager") return [];
+  const arr = Array.isArray(raw) ? raw : String(raw || "").split(",");
+  return [...new Set(arr.map((d) => String(d).trim()).filter(Boolean))];
+}
+
 router.post("/employees", async (req, res) => {
   try {
-    const { employeeId, name, department, role, employeeType, totalHeadcount } = req.body;
+    const { employeeId, name, department, role, employeeType, totalHeadcount, managedDepartments } = req.body;
     if (!employeeId || !name) {
       return res.status(400).json({ error: "사번과 이름은 필수입니다." });
     }
     const type = employeeType === "contractor" ? "contractor" : "individual";
+    const normRole = normalizeRole(role);
     const emp = await Employee.findOneAndUpdate(
       { employeeId: String(employeeId).trim() },
       {
@@ -62,7 +77,8 @@ router.post("/employees", async (req, res) => {
           employeeId: String(employeeId).trim(),
           name: String(name).trim(),
           department: department ? String(department).trim() : "",
-          role: role === "admin" ? "admin" : "user",
+          role: normRole,
+          managedDepartments: parseManagedDepartments(managedDepartments, normRole),
           employeeType: type,
           totalHeadcount: parseTotalHeadcount(totalHeadcount, type),
           active: true,
@@ -79,11 +95,18 @@ router.post("/employees", async (req, res) => {
 
 router.put("/employees/:id", async (req, res) => {
   try {
-    const { name, department, role, active, employeeType, totalHeadcount } = req.body;
+    const { name, department, role, active, employeeType, totalHeadcount, managedDepartments } = req.body;
     const update = {};
     if (name !== undefined) update.name = String(name).trim();
     if (department !== undefined) update.department = String(department).trim();
-    if (role !== undefined) update.role = role === "admin" ? "admin" : "user";
+    if (role !== undefined) {
+      update.role = normalizeRole(role);
+      // managedDepartments는 role과 함께 전달될 때만 갱신합니다 (role이 manager가 아니면 자동으로 비웁니다).
+      update.managedDepartments = parseManagedDepartments(managedDepartments, update.role);
+    } else if (managedDepartments !== undefined) {
+      const current = await Employee.findById(req.params.id).lean();
+      update.managedDepartments = parseManagedDepartments(managedDepartments, current ? current.role : "user");
+    }
     if (active !== undefined) update.active = !!active;
     if (employeeType !== undefined) {
       update.employeeType = employeeType === "contractor" ? "contractor" : "individual";
@@ -96,6 +119,12 @@ router.put("/employees/:id", async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "수정 중 오류가 발생했습니다." });
   }
+});
+
+// 담당 부서 지정 화면에서 고를 수 있도록, 현재 등록된 부서명 목록(중복 제거)을 반환합니다.
+router.get("/departments", async (req, res) => {
+  const list = await Employee.distinct("department", { department: { $ne: "" } });
+  res.json({ departments: list.sort((a, b) => String(a).localeCompare(String(b), "ko")) });
 });
 
 // 소프트 삭제 (재직 여부를 false로 변경 - 기록 보존을 위해 완전 삭제하지 않음)

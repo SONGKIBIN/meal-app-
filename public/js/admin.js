@@ -529,8 +529,8 @@ const AdminUI = {
         sorted.sort((a, b) => (b.active === a.active ? cmp(a.department, b.department) || cmp(a.name, b.name) : b.active - a.active));
         break;
       case "role": {
-        // 관리자 그룹을 먼저, 그다음 일반직원 그룹으로 묶어서 보여주고, 그룹 내에서는 부서→이름 순으로 정렬합니다.
-        const roleRank = (e) => (e.role === "admin" ? 0 : 1);
+        // 관리자 → 부서 운영자 → 일반직원 순으로 그룹을 묶어서 보여주고, 그룹 내에서는 부서→이름 순으로 정렬합니다.
+        const roleRank = (e) => (e.role === "admin" ? 0 : e.role === "manager" ? 1 : 2);
         sorted.sort((a, b) => roleRank(a) - roleRank(b) || cmp(a.department, b.department) || cmp(a.name, b.name));
         break;
       }
@@ -571,7 +571,7 @@ const AdminUI = {
           <td>${escapeHtml(e.name)}</td>
           <td>${escapeHtml(e.department)}</td>
           <td>${e.employeeType === "contractor" ? `<span class="badge admin">${t("contractorBadge")}</span>${Number.isInteger(e.totalHeadcount) ? ` TO ${e.totalHeadcount}` : ""}${pendingBadge}` : t("individualType")}</td>
-          <td>${e.role === "admin" ? t("admin") : t("user")}</td>
+          <td>${e.role === "admin" ? t("admin") : e.role === "manager" ? `${t("manager")}${e.managedDepartments && e.managedDepartments.length ? ` <span class="deadline-note" style="display:inline;">(${escapeHtml(e.managedDepartments.join(", "))})</span>` : ""}` : t("user")}</td>
           <td>${e.active ? t("active") : t("inactive")}</td>
           <td>${actions}</td>
         </tr>
@@ -605,18 +605,36 @@ const AdminUI = {
     }
   },
 
-  openEmployeeModal(id) {
+  async openEmployeeModal(id) {
     const emp = id ? this.employeesCache.find((e) => e._id === id) : null;
+    // 담당 부서 입력 시 오타로 인해 실제 부서명과 어긋나 운영자가 아무 인원도 못 보는 상황을 막기 위해,
+    // 기존에 등록된 부서명 목록을 datalist로 함께 보여줍니다.
+    if (!this.departmentsCache) {
+      try {
+        const data = await API.get("/admin/departments");
+        this.departmentsCache = data.departments || [];
+      } catch (err) {
+        this.departmentsCache = [];
+      }
+    }
+    const deptOptionsHtml = this.departmentsCache.map((d) => `<option value="${escapeHtml(d)}">`).join("");
     openModal(`
       <h3>${emp ? t("edit") : t("addEmployee")}</h3>
+      <datalist id="mDeptListOptions">${deptOptionsHtml}</datalist>
       <div class="field"><label>${t("employeeId")}</label><input id="mEmpId" value="${emp ? escapeHtml(emp.employeeId) : ""}" ${emp ? "disabled" : ""}></div>
       <div class="field"><label>${t("name")}</label><input id="mName" value="${emp ? escapeHtml(emp.name) : ""}"></div>
-      <div class="field"><label>${t("department")}</label><input id="mDept" value="${emp ? escapeHtml(emp.department) : ""}"></div>
+      <div class="field"><label>${t("department")}</label><input id="mDept" list="mDeptListOptions" value="${emp ? escapeHtml(emp.department) : ""}"></div>
       <div class="field"><label>${t("role")}</label>
         <select id="mRole">
           <option value="user" ${!emp || emp.role === "user" ? "selected" : ""}>${t("user")}</option>
+          <option value="manager" ${emp && emp.role === "manager" ? "selected" : ""}>${t("manager")}</option>
           <option value="admin" ${emp && emp.role === "admin" ? "selected" : ""}>${t("admin")}</option>
         </select>
+      </div>
+      <div class="field" id="mManagedDeptField" style="${emp && emp.role === "manager" ? "" : "display:none;"}">
+        <label>${t("managedDepartments")}</label>
+        <input id="mManagedDept" list="mDeptListOptions" value="${emp && emp.managedDepartments ? escapeHtml(emp.managedDepartments.join(", ")) : ""}" placeholder="${t("managedDepartmentsPlaceholder")}">
+        <div class="login-help">${t("managedDepartmentsHelp")}</div>
       </div>
       <div class="field"><label>${t("employeeType")}</label>
         <select id="mEmployeeType">
@@ -638,16 +656,20 @@ const AdminUI = {
     document.getElementById("mEmployeeType").addEventListener("change", (e) => {
       document.getElementById("mTotalHeadcountField").style.display = e.target.value === "contractor" ? "" : "none";
     });
+    document.getElementById("mRole").addEventListener("change", (e) => {
+      document.getElementById("mManagedDeptField").style.display = e.target.value === "manager" ? "" : "none";
+    });
     document.getElementById("mSaveBtn").addEventListener("click", async () => {
       const employeeId = document.getElementById("mEmpId").value.trim();
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
       const role = document.getElementById("mRole").value;
+      const managedDepartments = document.getElementById("mManagedDept").value.trim();
       const employeeType = document.getElementById("mEmployeeType").value;
       const totalHeadcount = document.getElementById("mTotalHeadcount").value.trim();
       try {
-        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, employeeType, totalHeadcount });
-        else await API.post("/admin/employees", { employeeId, name, department, role, employeeType, totalHeadcount });
+        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, managedDepartments, employeeType, totalHeadcount });
+        else await API.post("/admin/employees", { employeeId, name, department, role, managedDepartments, employeeType, totalHeadcount });
         closeModal();
         showToast(t("save"));
         this.loadEmployees();

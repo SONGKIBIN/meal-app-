@@ -84,12 +84,16 @@ function showAppView() {
     : escapeHtml(user.name);
   document.getElementById("userBadge").innerHTML =
     `${displayName} (${escapeHtml(user.employeeId)})` +
-    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
+    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "") +
+    (user.role === "manager" ? ` <span class="badge manager">${t("manager")}</span>` : "");
   const isAdmin = user.role === "admin";
+  const isManager = user.role === "manager";
   // 마스터 관리자 계정(시스템 최초 설치 시 자동 생성된 계정)만 "내 식사 신청" 메뉴를 숨기고 관리자 화면만 보여줍니다.
   // 다른 직원에게 나중에 관리자 권한을 부여한 경우에는 예전처럼 관리자 화면과 식사 신청 화면을 모두 사용할 수 있습니다.
+  // 부서 운영자(role=manager)도 일반 직원과 동일하게 "내 식사 신청" 화면을 함께 사용할 수 있고, 추가로 운영자 화면을 봅니다.
   const isMasterAdmin = !!user.isMasterAdmin;
   document.getElementById("tabAdmin").classList.toggle("hidden", !isAdmin);
+  document.getElementById("tabManager").classList.toggle("hidden", !isManager);
   document.getElementById("tabMy").classList.toggle("hidden", isMasterAdmin);
   if (!isMasterAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
@@ -132,10 +136,13 @@ function switchMainTab(tabName) {
   document.querySelectorAll("#mainTabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabName));
   document.getElementById("myView").classList.toggle("hidden", tabName !== "my");
   document.getElementById("adminView").classList.toggle("hidden", tabName !== "admin");
+  document.getElementById("managerView").classList.toggle("hidden", tabName !== "manager");
   if (tabName === "my") {
     loadWeek(currentWeekAnchor);
   } else if (tabName === "admin") {
     AdminUI.switchTab(AdminUI.currentTab || "status");
+  } else if (tabName === "manager") {
+    ManagerUI.switchTab(ManagerUI.currentTab || "status");
   }
 }
 
@@ -691,6 +698,7 @@ function initLangSelectors() {
       applyI18n();
       if (!document.getElementById("appView").classList.contains("hidden")) {
         if (currentMainTab === "my") loadWeek(currentWeekAnchor);
+        else if (currentMainTab === "manager" && ManagerUI.currentTab) ManagerUI.switchTab(ManagerUI.currentTab);
         else if (AdminUI.currentTab) AdminUI.switchTab(AdminUI.currentTab);
       }
     });

@@ -255,6 +255,7 @@ table.data-table th { background: #f0f2f6; }
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; background: #eef1f6; color: var(--text-muted); }
 .badge.admin { background: #fde68a; color: #92400e; }
+.badge.manager { background: #bfdbfe; color: #1e40af; }
 
 /* 아이폰/아이패드 홈 화면 추가 안내 모달 */
 .ios-install-steps p { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 0.9rem; }

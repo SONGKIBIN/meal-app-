@@ -27,6 +27,7 @@ router.post("/login", async (req, res) => {
       name: employee.name,
       department: employee.department,
       role: employee.role,
+      managedDepartments: employee.managedDepartments || [],
       employeeType: employee.employeeType || "individual",
       // 마스터 관리자 계정만 true입니다. 다른 직원에게 관리자 권한을 부여해도 이 값은 false로 유지됩니다.
       isMasterAdmin: employee.employeeId === MASTER_ADMIN_ID,

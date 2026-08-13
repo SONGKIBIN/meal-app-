@@ -187,6 +187,15 @@ const I18N = {
     iosInstallStep1: "Safari 화면 아래(아이패드는 위쪽) 공유 아이콘(⬆️ 네모 상자)을 탭하세요.",
     iosInstallStep2: "아래로 스크롤해서 '홈 화면에 추가'를 선택하세요.",
     iosInstallStep3: "오른쪽 위 '추가'를 누르면 홈 화면에 앱 아이콘이 생기고, 다음부터는 아이콘을 눌러 앱처럼 바로 실행할 수 있습니다.",
+    // 부서 운영자
+    manager: "운영자",
+    managerPanel: "부서 운영자",
+    managedDepartments: "담당 부서",
+    managedDepartmentsHelp: "본인 소속 부서는 자동으로 포함되며, 여기에 추가로 지정한 부서도 함께 조회·관리할 수 있습니다.",
+    managedDepartmentsPlaceholder: "부서명을 쉼표(,)로 구분해서 입력 (예: 생산1팀, 생산2팀)",
+    scopeDepartmentsLabel: "조회 가능 부서",
+    noManagedDepartments: "조회 가능한 부서가 없습니다. 관리자에게 담당 부서 지정을 요청해주세요.",
+    managerEmployeesNotice: "담당 부서 소속 직원의 정보만 수정할 수 있습니다. 인원 추가·삭제는 관리자만 할 수 있습니다.",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -373,6 +382,15 @@ const I18N = {
     iosInstallStep1: "Tap the Share icon (⬆️ square) at the bottom of Safari (top on iPad).",
     iosInstallStep2: "Scroll down and select 'Add to Home Screen'.",
     iosInstallStep3: "Tap 'Add' in the top right. An app icon will appear on your home screen — tap it anytime to launch the app instantly.",
+    // Department Manager
+    manager: "Manager",
+    managerPanel: "Department Manager",
+    managedDepartments: "Managed Departments",
+    managedDepartmentsHelp: "Their own department is always included automatically. Departments added here are also viewable and manageable.",
+    managedDepartmentsPlaceholder: "Enter department names separated by commas (e.g. Production Team 1, Production Team 2)",
+    scopeDepartmentsLabel: "Viewable Departments",
+    noManagedDepartments: "No viewable departments assigned. Please ask an admin to assign managed departments.",
+    managerEmployeesNotice: "You can only edit employees in your managed departments. Adding or deleting employees requires an admin.",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -560,6 +578,15 @@ const I18N = {
     iosInstallStep1: "点击 Safari 底部（iPad 为顶部）的分享图标（⬆️ 方框）。",
     iosInstallStep2: "向下滚动并选择「添加到主屏幕」。",
     iosInstallStep3: "点击右上角的「添加」，主屏幕上会出现应用图标，之后点击图标即可像应用一样直接打开。",
+    // 部门运营负责人
+    manager: "运营负责人",
+    managerPanel: "部门运营负责人",
+    managedDepartments: "负责部门",
+    managedDepartmentsHelp: "本人所属部门会自动包含在内，此处额外指定的部门也可以一并查看和管理。",
+    managedDepartmentsPlaceholder: "请输入部门名称，用逗号(,)分隔（例：生产1组, 生产2组）",
+    scopeDepartmentsLabel: "可查看部门",
+    noManagedDepartments: "尚未分配可查看的部门，请联系管理员指定负责部门。",
+    managerEmployeesNotice: "只能修改所负责部门内的员工信息，新增或删除员工需由管理员处理。",
   },
 };
 

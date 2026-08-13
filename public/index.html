@@ -65,6 +65,7 @@
 <main class="container hidden" id="appView">
   <div class="tabs" id="mainTabs">
     <button data-tab="my" class="active" data-i18n="myReservation" id="tabMy">내 식사 신청</button>
+    <button data-tab="manager" id="tabManager" class="hidden" data-i18n="managerPanel">부서 운영자</button>
     <button data-tab="admin" id="tabAdmin" class="hidden" data-i18n="adminPanel">관리자</button>
   </div>
 
@@ -108,6 +109,21 @@
     <section id="adminMenuView" class="hidden"></section>
     <section id="adminSettingsView" class="hidden"></section>
   </section>
+
+  <!-- 부서 운영자 -->
+  <section id="managerView" class="hidden">
+    <div class="tabs" id="managerTabs">
+      <button data-mtab="status" class="active" data-i18n="reservationsStatus">신청 현황</button>
+      <button data-mtab="daily" data-i18n="dailySummary">일일 집계</button>
+      <button data-mtab="monthly" data-i18n="monthlySummary">월간 집계</button>
+      <button data-mtab="employees" data-i18n="employees">직원 관리</button>
+    </div>
+
+    <section id="managerStatusView"></section>
+    <section id="managerDailyView" class="hidden"></section>
+    <section id="managerMonthlyView" class="hidden"></section>
+    <section id="managerEmployeesView" class="hidden"></section>
+  </section>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -115,6 +131,7 @@
 <script src="/js/i18n.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/admin.js"></script>
+<script src="/js/manager.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>
