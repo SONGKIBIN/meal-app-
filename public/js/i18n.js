@@ -216,6 +216,9 @@ const I18N = {
     satisfactionSubmitted: "평가가 등록되었습니다. 감사합니다.",
     satisfactionStarRequired: "별점을 선택해주세요.",
     satisfactionReasonRequired: "별점을 남긴 이유를 입력해야 등록할 수 있습니다.",
+    satisfactionNeedApply: (mealLabel) => `${mealLabel}을 신청하면 평가할 수 있습니다.`,
+    satisfactionWindowNote: (windowLabel) => `평가 가능 시간: ${windowLabel}`,
+    satisfactionAlreadyRated: "이미 평가하셨습니다 (시간 안에 다시 눌러 수정 가능).",
   },
   en: {
     appTitle: "Meal Reservation System",
@@ -431,6 +434,9 @@ const I18N = {
     satisfactionSubmitted: "Your rating has been submitted. Thank you.",
     satisfactionStarRequired: "Please select a star rating.",
     satisfactionReasonRequired: "You must enter a reason to submit your rating.",
+    satisfactionNeedApply: (mealLabel) => `Apply for ${mealLabel} to enable rating.`,
+    satisfactionWindowNote: (windowLabel) => `Rating available: ${windowLabel}`,
+    satisfactionAlreadyRated: "Already rated (tap again within the time window to update).",
   },
   zh: {
     appTitle: "员工用餐申请系统",
@@ -647,6 +653,9 @@ const I18N = {
     satisfactionSubmitted: "评价已提交，谢谢。",
     satisfactionStarRequired: "请选择星级。",
     satisfactionReasonRequired: "必须输入理由才能提交评价。",
+    satisfactionNeedApply: (mealLabel) => `申请${mealLabel}后即可评价。`,
+    satisfactionWindowNote: (windowLabel) => `可评价时间：${windowLabel}`,
+    satisfactionAlreadyRated: "您已评价（评价时间内可再次点击修改）。",
   },
 };
 

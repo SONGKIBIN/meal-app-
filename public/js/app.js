@@ -277,8 +277,9 @@ function checkTodayReminder(days) {
 }
 
 /* ---------------------------- 식사 만족도 평가(별점) ----------------------------
-   식사를 신청한 사람만, 정해진 시간대(중식 12:00~13:00 / 석식 17:00~18:00, 한국시간)에만
-   별점(1~5개, 20~100점)과 이유(사유)를 남길 수 있습니다. 시간대가 아니면 카드 자체가 보이지 않습니다. */
+   평가 카드 자체는 "내 식사 신청" 화면에 항상 보입니다. 다만 실제로 별점을 등록/수정할 수 있는 것은
+   식사를 신청한 사람이, 정해진 시간대(중식 12:00~13:00 / 석식 17:00~18:00, 한국시간) 안에 있을 때뿐이며,
+   그 외에는 별점/이유 입력칸과 등록 버튼이 비활성화되고 안내 문구가 표시됩니다. */
 
 let ratingSelected = { lunch: 0, dinner: 0 };
 
@@ -287,7 +288,7 @@ async function checkMealRating() {
   if (!card) return;
   try {
     const data = await API.get("/rating/today");
-    const meals = ["lunch", "dinner"].filter((m) => data[m] && (data[m].eligible || (data[m].windowOpen && data[m].myRating)));
+    const meals = ["lunch", "dinner"].filter((m) => data[m]);
     if (!meals.length) {
       card.classList.add("hidden");
       card.innerHTML = "";
@@ -300,7 +301,7 @@ async function checkMealRating() {
     `;
     meals.forEach((m) => {
       ratingSelected[m] = data[m].myRating ? data[m].myRating.stars : 0;
-      wireRatingSection(m);
+      wireRatingSection(m, data[m]);
     });
   } catch (err) {
     card.classList.add("hidden");
@@ -312,25 +313,34 @@ function renderRatingSection(mealType, info) {
   const mealLabel = mealType === "lunch" ? t("lunch") : t("dinner");
   const stars = info.myRating ? info.myRating.stars : 0;
   const reason = info.myRating ? info.myRating.reason : "";
+  const interactive = !!(info.applied && info.windowOpen);
   const starsHtml = [1, 2, 3, 4, 5].map((n) => `
-    <button type="button" class="star-btn ${n <= stars ? "selected" : ""}" data-meal="${mealType}" data-star="${n}">★</button>
+    <button type="button" class="star-btn ${n <= stars ? "selected" : ""}" data-meal="${mealType}" data-star="${n}" ${interactive ? "" : "disabled"}>★</button>
   `).join("");
+  const noteText = !info.applied
+    ? t("satisfactionNeedApply", mealLabel)
+    : !info.windowOpen
+    ? t("satisfactionWindowNote", info.windowLabel)
+    : "";
   return `
     <div class="rating-section" data-meal-section="${mealType}">
       <div class="rating-section-title">${mealLabel} <span class="deadline-note" style="display:inline;">(${escapeHtml(info.windowLabel)})</span></div>
+      ${noteText ? `<p class="deadline-note">${escapeHtml(noteText)}</p>` : ""}
       <div class="star-rating" data-meal="${mealType}">${starsHtml}</div>
-      <textarea class="rating-reason" data-meal="${mealType}" rows="2" maxlength="500" placeholder="${t("satisfactionReasonPlaceholder")}">${escapeHtml(reason)}</textarea>
+      <textarea class="rating-reason" data-meal="${mealType}" rows="2" maxlength="500" placeholder="${t("satisfactionReasonPlaceholder")}" ${interactive ? "" : "disabled"}>${escapeHtml(reason)}</textarea>
       <div class="toolbar">
-        <button data-rating-submit="${mealType}">${info.myRating ? t("satisfactionUpdate") : t("satisfactionSubmit")}</button>
-        ${info.myRating ? `<span class="deadline-note" style="display:inline;">${t("satisfactionSubmitted")}</span>` : ""}
+        <button data-rating-submit="${mealType}" ${interactive ? "" : "disabled"}>${info.myRating ? t("satisfactionUpdate") : t("satisfactionSubmit")}</button>
+        ${info.myRating ? `<span class="deadline-note" style="display:inline;">${t("satisfactionAlreadyRated")}</span>` : ""}
       </div>
     </div>
   `;
 }
 
-function wireRatingSection(mealType) {
+function wireRatingSection(mealType, info) {
   const section = document.querySelector(`[data-meal-section="${mealType}"]`);
   if (!section) return;
+  const interactive = !!(info.applied && info.windowOpen);
+  if (!interactive) return; // 평가 가능 시간이 아니거나 신청 전이면 별점/등록 버튼이 비활성화되어 있어 이벤트를 연결할 필요가 없습니다.
   section.querySelectorAll(`.star-btn[data-meal="${mealType}"]`).forEach((btn) => {
     btn.addEventListener("click", () => {
       ratingSelected[mealType] = parseInt(btn.dataset.star, 10);

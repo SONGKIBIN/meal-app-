@@ -140,8 +140,8 @@ function isCancelAllowed(dateStr, now = new Date(), deadline = {}) {
 // 만족도 평가(별점)를 남길 수 있는 시간대입니다. 중식은 12:00~13:00, 석식은 17:00~18:00 (한국 시간, KST)
 // 사이에만 평가할 수 있고, 그 외 시간에는 평가 화면 자체가 보이지 않습니다.
 const RATING_WINDOWS = {
-  lunch: { startHour: 12, startMinute: 0, endHour: 13, endMinute: 0 },
-  dinner: { startHour: 17, startMinute: 0, endHour: 18, endMinute: 0 },
+  lunch: { startHour: 12, startMinute: 0, endHour: 15, endMinute: 0 },
+  dinner: { startHour: 17, startMinute: 0, endHour: 20, endMinute: 0 },
 };
 
 function ratingWindowLabel(mealType) {

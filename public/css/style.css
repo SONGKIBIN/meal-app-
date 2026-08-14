@@ -315,6 +315,13 @@ table.data-table th { background: #f0f2f6; }
 }
 .star-btn:hover { color: #fbbf24; transform: scale(1.1); }
 .star-btn.selected { color: #f59e0b; }
+.star-btn:disabled {
+  background: none;
+  cursor: not-allowed;
+}
+.star-btn:disabled:hover { color: #d1d5db; transform: none; }
+.star-btn:disabled.selected,
+.star-btn:disabled.selected:hover { color: #fcd34d; transform: none; }
 .rating-reason {
   width: 100%;
   padding: 8px 10px;
@@ -324,6 +331,7 @@ table.data-table th { background: #f0f2f6; }
   font-size: 0.9rem;
   resize: vertical;
 }
+.rating-reason:disabled { background: #f5f6f8; color: var(--text-muted); resize: none; }
 
 @media print {
   header.topbar, .toolbar, .tabs, .no-print { display: none !important; }
