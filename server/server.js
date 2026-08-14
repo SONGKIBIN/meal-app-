@@ -9,9 +9,7 @@ const Settings = require("./models/Settings");
 const authRoutes = require("./routes/auth");
 const reservationRoutes = require("./routes/reservations");
 const adminRoutes = require("./routes/admin");
-const managerRoutes = require("./routes/manager");
 const menuRoutes = require("./routes/menu");
-const { cleanupOldMenus } = menuRoutes;
 const announcementRoutes = require("./routes/announcement");
 const pushRoutes = require("./routes/push");
 const cronRoutes = require("./routes/cron");
@@ -23,7 +21,6 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/manager", managerRoutes);
 app.use("/api/menu", menuRoutes);
 app.use("/api/announcement", announcementRoutes);
 app.use("/api/push", pushRoutes);
@@ -59,10 +56,8 @@ async function bootstrapSettings() {
   if (!existing) {
     await Settings.create({
       key: "global",
-      lunchDeadlineHour: parseInt(process.env.LUNCH_APPLY_DEADLINE_HOUR || process.env.APPLY_DEADLINE_HOUR || "9", 10),
-      lunchDeadlineMinute: parseInt(process.env.LUNCH_APPLY_DEADLINE_MINUTE || process.env.APPLY_DEADLINE_MINUTE || "30", 10),
-      dinnerDeadlineHour: parseInt(process.env.DINNER_APPLY_DEADLINE_HOUR || "14", 10),
-      dinnerDeadlineMinute: parseInt(process.env.DINNER_APPLY_DEADLINE_MINUTE || "0", 10),
+      deadlineHour: parseInt(process.env.APPLY_DEADLINE_HOUR || "9", 10),
+      deadlineMinute: parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10),
     });
   }
 }
@@ -80,12 +75,6 @@ async function start() {
   console.log("[db] MongoDB 연결 성공");
   await bootstrapAdmin();
   await bootstrapSettings();
-  try {
-    const deleted = await cleanupOldMenus();
-    if (deleted) console.log(`[bootstrap] 오래된 식단표 ${deleted}건 자동 삭제`);
-  } catch (err) {
-    console.error("[bootstrap] 식단표 정리 중 오류:", err.message);
-  }
   app.listen(PORT, () => console.log(`[server] http://localhost:${PORT} 에서 실행 중`));
 }
 

@@ -1,0 +1,24 @@
+{
+  "name": "meal-reservation-app",
+  "version": "1.0.0",
+  "description": "직원 식사 신청 관리 시스템",
+  "main": "server/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.0",
+    "multer": "^1.4.5-lts.1",
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
+  }
+}

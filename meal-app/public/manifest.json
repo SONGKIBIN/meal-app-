@@ -1,0 +1,14 @@
+{
+  "name": "신흥정밀 식사 신청 시스템",
+  "short_name": "식사신청",
+  "description": "직원 식사(중식/석식) 신청 관리 시스템",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#C4162B",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

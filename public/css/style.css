@@ -40,25 +40,6 @@ header.topbar .brand {
   font-weight: 700;
   font-size: 1.05rem;
   color: var(--primary-dark);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.brand-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.login-logo {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-bottom: 10px;
 }
 
 header.topbar .right {
@@ -134,14 +115,6 @@ main.container {
 .login-card input { width: 100%; padding: 10px; font-size: 1rem; }
 .login-card button { width: 100%; padding: 11px; font-size: 1rem; margin-top: 6px; }
 .login-help { font-size: 0.8rem; color: var(--text-muted); margin-top: 10px; }
-.dept-check-list {
-  display: flex; flex-wrap: wrap; gap: 6px 14px;
-  max-height: 160px; overflow-y: auto;
-  padding: 8px; margin-top: 6px;
-  border: 1px solid var(--border); border-radius: 8px;
-}
-.dept-check-item { display: flex; align-items: center; gap: 5px; font-size: 0.88rem; font-weight: normal; }
-.dept-check-item input { width: auto; margin: 0; }
 .login-error { color: var(--danger); font-size: 0.85rem; min-height: 1.2em; margin-top: 8px; }
 
 /* 탭 */
@@ -175,43 +148,6 @@ main.container {
 .meal-row button.applied:hover { background: #15803d; }
 .meal-row.headcount-row input[type=number] { width: 100%; text-align: center; }
 
-/* 주말(토/일)·공휴일 표시: 날짜/요일을 빨간색으로, 신청 전 버튼도 빨간색으로 보여줍니다. 신청완료(초록)와
-   마감으로 비활성화된 버튼(회색)은 그대로 유지됩니다. */
-.day-cell.weekend .date-label,
-.day-cell.holiday .date-label,
-.day-cell.weekend .weekday-label,
-.day-cell.holiday .weekday-label {
-  color: var(--danger);
-}
-.day-cell.holiday .weekday-label .holiday-tag {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  margin-top: 2px;
-}
-.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(:disabled),
-.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(:disabled) {
-  background: var(--danger);
-}
-.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(:disabled):hover,
-.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(:disabled):hover {
-  background: #b91c1c;
-}
-
-/* 손님/내방객 인원 추가 행 (개인 직원, 신청 완료 후에만 표시) */
-.meal-row.guest-row {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  background: #f7f7f9;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-top: -2px;
-}
-.meal-row.guest-row .meal-name { flex: 1; text-align: left; font-size: 0.74rem; }
-.meal-row.guest-row input[type=number] { width: 52px; text-align: center; padding: 5px 4px; }
-.meal-row.guest-row button { width: auto; padding: 5px 10px; font-size: 0.78rem; }
-
 /* 테이블 */
 table.data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 table.data-table th, table.data-table td {
@@ -234,9 +170,6 @@ table.data-table th { background: #f0f2f6; }
 }
 .summary-cards .stat .num { font-size: 1.6rem; font-weight: 800; color: var(--primary-dark); }
 .summary-cards .stat .lbl { font-size: 0.8rem; color: var(--text-muted); }
-.summary-cards .stat.highlight { background: var(--primary); }
-.summary-cards .stat.highlight .num,
-.summary-cards .stat.highlight .lbl { color: #fff; }
 
 .toast {
   position: fixed;
@@ -263,11 +196,6 @@ table.data-table th { background: #f0f2f6; }
 
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; background: #eef1f6; color: var(--text-muted); }
 .badge.admin { background: #fde68a; color: #92400e; }
-.badge.manager { background: #bfdbfe; color: #1e40af; }
-
-/* 아이폰/아이패드 홈 화면 추가 안내 모달 */
-.ios-install-steps p { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 0.9rem; }
-.ios-install-steps .badge.admin { flex-shrink: 0; width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; }
 
 .announcement-banner {
   background: #fff7ed;

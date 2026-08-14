@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>식사 신청 시스템</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#C4162B" />
+<link rel="icon" href="/img/icon-32.png" sizes="32x32" />
+<link rel="icon" href="/icons/icon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<!-- 아이폰/아이패드에서 "홈 화면에 추가"로 설치했을 때 Safari 주소창 없이 앱처럼 전체화면으로 실행되도록 합니다. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="신흥정밀 식사신청" />
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<header class="topbar hidden" id="topbar">
+  <div class="brand">
+    <img src="/img/logo.png" alt="신흥정밀" class="brand-logo" />
+    <span data-i18n="appTitle" id="brandLabel">식사 신청 시스템</span>
+  </div>
+  <div class="right">
+    <span class="badge" id="userBadge"></span>
+    <button class="secondary" data-i18n="shareLink" id="shareLinkBtn">접속 링크 공유</button>
+    <button class="secondary hidden" data-i18n="enableNotify" id="notifyBtn">휴대폰 알림 받기</button>
+    <button class="secondary hidden" data-i18n="installApp" id="installBtn">앱 설치</button>
+    <select id="langSelect">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+    <button class="secondary" data-i18n="logout" id="logoutBtn">로그아웃</button>
+  </div>
+</header>
+
+<!-- 로그인 화면 -->
+<div id="loginView">
+  <div class="card login-card">
+    <img src="/img/logo.png" alt="신흥정밀" class="login-logo" />
+    <h2 data-i18n="appTitle" id="loginTitle">식사 신청 시스템</h2>
+    <select id="langSelectLogin" style="margin-bottom:14px;">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+    <div class="field">
+      <label data-i18n="employeeId" id="lblEmployeeId">사번</label>
+      <input type="text" id="inputEmployeeId" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label data-i18n="name" id="lblName">이름</label>
+      <input type="text" id="inputName" autocomplete="off" />
+    </div>
+    <button data-i18n="loginBtn" id="loginBtn">로그인</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-help" id="loginHelp" data-i18n="loginHelp"></div>
+    <button class="secondary" id="checkUpdateBtn" data-i18n="checkUpdate" style="margin-top:14px;width:100%;">업데이트 확인</button>
+  </div>
+</div>
+
+<!-- 메인 앱 -->
+<main class="container hidden" id="appView">
+  <div class="tabs" id="mainTabs">
+    <button data-tab="my" class="active" data-i18n="myReservation" id="tabMy">내 식사 신청</button>
+    <button data-tab="manager" id="tabManager" class="hidden" data-i18n="managerPanel">부서 운영자</button>
+    <button data-tab="admin" id="tabAdmin" class="hidden" data-i18n="adminPanel">관리자</button>
+  </div>
+
+  <!-- 내 식사 신청 -->
+  <section id="myView">
+    <div class="announcement-banner hidden" id="announcementBanner"></div>
+    <div class="card hidden" id="ratingCard"></div>
+    <div class="card">
+      <div class="week-nav">
+        <button class="secondary" data-i18n="prevWeek" id="prevWeekBtn">◀ 이전 주</button>
+        <div class="label" id="weekLabel">-</div>
+        <button class="secondary" data-i18n="nextWeek" id="nextWeekBtn">다음 주 ▶</button>
+      </div>
+      <div class="deadline-note" id="deadlineNote"></div>
+      <div id="contractorToCard" class="hidden"></div>
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <h2 style="margin:0;flex:1;" data-i18n="weeklyMenu">주간 식단표</h2>
+        <button class="secondary" id="toggleMenuBtn" data-i18n="viewMenu">식단표 보기</button>
+      </div>
+      <div id="menuViewArea" class="hidden"></div>
+    </div>
+  </section>
+
+  <!-- 관리자 -->
+  <section id="adminView" class="hidden">
+    <div class="tabs" id="adminTabs">
+      <button data-atab="status" class="active" data-i18n="reservationsStatus">신청 현황</button>
+      <button data-atab="daily" data-i18n="dailySummary">일일 집계</button>
+      <button data-atab="monthly" data-i18n="monthlySummary">월간 집계</button>
+      <button data-atab="employees" data-i18n="employees">직원 관리</button>
+      <button data-atab="menu" data-i18n="menuManage">식단표 관리</button>
+      <button data-atab="satisfaction" data-i18n="satisfactionTab">만족도 조사</button>
+      <button data-atab="settings" data-i18n="settings">설정</button>
+    </div>
+
+    <section id="adminStatusView"></section>
+    <section id="adminDailyView" class="hidden"></section>
+    <section id="adminMonthlyView" class="hidden"></section>
+    <section id="adminEmployeesView" class="hidden"></section>
+    <section id="adminMenuView" class="hidden"></section>
+    <section id="adminSatisfactionView" class="hidden"></section>
+    <section id="adminSettingsView" class="hidden"></section>
+  </section>
+
+  <!-- 부서 운영자 -->
+  <section id="managerView" class="hidden">
+    <div class="tabs" id="managerTabs">
+      <button data-mtab="status" class="active" data-i18n="reservationsStatus">신청 현황</button>
+      <button data-mtab="daily" data-i18n="dailySummary">일일 집계</button>
+      <button data-mtab="monthly" data-i18n="monthlySummary">월간 집계</button>
+      <button data-mtab="employees" data-i18n="employees">직원 관리</button>
+    </div>
+
+    <section id="managerStatusView"></section>
+    <section id="managerDailyView" class="hidden"></section>
+    <section id="managerMonthlyView" class="hidden"></section>
+    <section id="managerEmployeesView" class="hidden"></section>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/admin.js"></script>
+<script src="/js/manager.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
