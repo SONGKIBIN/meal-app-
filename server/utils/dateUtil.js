@@ -62,6 +62,33 @@ function getWeekDates(dateStr) {
   return week;
 }
 
+/**
+ * 매년 날짜가 고정된 양력 공휴일(MM-DD)입니다. 설날/추석처럼 음력 기준이라 해마다 날짜가 바뀌는 공휴일이나
+ * 그 해에만 지정되는 대체공휴일·임시공휴일은 관리자가 설정 화면에서 직접 등록합니다 (Holiday 모델 참고).
+ */
+const FIXED_HOLIDAYS_MMDD = {
+  "01-01": "신정",
+  "03-01": "삼일절",
+  "05-05": "어린이날",
+  "06-06": "현충일",
+  "08-15": "광복절",
+  "10-03": "개천절",
+  "10-09": "한글날",
+  "12-25": "크리스마스",
+};
+
+function fixedHolidayLabel(dateStr) {
+  return FIXED_HOLIDAYS_MMDD[dateStr.slice(5)] || "";
+}
+
+/**
+ * 주말(토/일) 여부를 "YYYY-MM-DD" 문자열로 판별합니다.
+ */
+function isWeekendDate(dateStr) {
+  const wd = weekdayOf(dateStr);
+  return wd === 0 || wd === 6;
+}
+
 function getMonthDates(year, month) {
   // month: 1~12
   const first = `${year}-${pad(month)}-01`;
@@ -74,17 +101,24 @@ function getMonthDates(year, month) {
   return dates;
 }
 
-const DEADLINE_HOUR = parseInt(process.env.APPLY_DEADLINE_HOUR || "9", 10);
-const DEADLINE_MINUTE = parseInt(process.env.APPLY_DEADLINE_MINUTE || "30", 10);
+// 중식/석식은 마감시간이 서로 다를 수 있습니다 (예: 중식 09:30, 석식 14:00).
+// 환경변수가 없으면 중식은 기존 기본값(09:30), 석식은 14:00을 기본값으로 사용합니다.
+const LUNCH_DEADLINE_HOUR = parseInt(process.env.LUNCH_APPLY_DEADLINE_HOUR || process.env.APPLY_DEADLINE_HOUR || "9", 10);
+const LUNCH_DEADLINE_MINUTE = parseInt(process.env.LUNCH_APPLY_DEADLINE_MINUTE || process.env.APPLY_DEADLINE_MINUTE || "30", 10);
+const DINNER_DEADLINE_HOUR = parseInt(process.env.DINNER_APPLY_DEADLINE_HOUR || "14", 10);
+const DINNER_DEADLINE_MINUTE = parseInt(process.env.DINNER_APPLY_DEADLINE_MINUTE || "0", 10);
+// 이전 버전과의 호환을 위해 유지 (기본값은 중식 마감시각과 동일)
+const DEADLINE_HOUR = LUNCH_DEADLINE_HOUR;
+const DEADLINE_MINUTE = LUNCH_DEADLINE_MINUTE;
 
 /**
  * 신청 가능 여부: 오늘보다 미래 날짜는 항상 가능,
- * 오늘 날짜는 마감시각(기본 09:30, 관리자가 설정에서 변경 가능) 이전까지만 가능, 과거 날짜는 불가능.
- * deadline: { hour, minute } - 생략 시 환경변수 기본값 사용
+ * 오늘 날짜는 마감시각(중식/석식 각각 다르게 설정 가능, 관리자가 설정에서 변경 가능) 이전까지만 가능, 과거 날짜는 불가능.
+ * deadline: { hour, minute } - 생략 시 중식 기본값 사용 (호출하는 쪽에서 끼니별 마감시각을 넘겨주세요)
  */
 function isApplyAllowed(dateStr, now = new Date(), deadline = {}) {
-  const hour = Number.isInteger(deadline.hour) ? deadline.hour : DEADLINE_HOUR;
-  const minute = Number.isInteger(deadline.minute) ? deadline.minute : DEADLINE_MINUTE;
+  const hour = Number.isInteger(deadline.hour) ? deadline.hour : LUNCH_DEADLINE_HOUR;
+  const minute = Number.isInteger(deadline.minute) ? deadline.minute : LUNCH_DEADLINE_MINUTE;
   const today = todayKSTStr();
   if (dateStr > today) return true;
   if (dateStr < today) return false;
@@ -103,6 +137,32 @@ function isCancelAllowed(dateStr, now = new Date(), deadline = {}) {
   return isApplyAllowed(dateStr, now, deadline);
 }
 
+// 만족도 평가(별점)를 남길 수 있는 시간대입니다. 중식은 12:00~13:00, 석식은 17:00~18:00 (한국 시간, KST)
+// 사이에만 평가할 수 있고, 그 외 시간에는 평가 화면 자체가 보이지 않습니다.
+const RATING_WINDOWS = {
+  lunch: { startHour: 12, startMinute: 0, endHour: 13, endMinute: 0 },
+  dinner: { startHour: 17, startMinute: 0, endHour: 18, endMinute: 0 },
+};
+
+function ratingWindowLabel(mealType) {
+  const w = RATING_WINDOWS[mealType];
+  if (!w) return "";
+  return `${pad(w.startHour)}:${pad(w.startMinute)} ~ ${pad(w.endHour)}:${pad(w.endMinute)}`;
+}
+
+/**
+ * 지금 시각이 해당 끼니의 만족도 평가 가능 시간대(KST)인지 여부.
+ */
+function isRatingWindowOpen(mealType, now = new Date()) {
+  const w = RATING_WINDOWS[mealType];
+  if (!w) return false;
+  const parts = getKSTParts(now);
+  const cur = parts.hour * 60 + parts.minute;
+  const start = w.startHour * 60 + w.startMinute;
+  const end = w.endHour * 60 + w.endMinute;
+  return cur >= start && cur < end;
+}
+
 module.exports = {
   getKSTParts,
   todayKSTStr,
@@ -114,4 +174,14 @@ module.exports = {
   isCancelAllowed,
   DEADLINE_HOUR,
   DEADLINE_MINUTE,
+  LUNCH_DEADLINE_HOUR,
+  LUNCH_DEADLINE_MINUTE,
+  DINNER_DEADLINE_HOUR,
+  DINNER_DEADLINE_MINUTE,
+  FIXED_HOLIDAYS_MMDD,
+  fixedHolidayLabel,
+  isWeekendDate,
+  RATING_WINDOWS,
+  ratingWindowLabel,
+  isRatingWindowOpen,
 };

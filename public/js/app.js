@@ -2,6 +2,7 @@
 let currentWeekAnchor = new Date().toISOString().slice(0, 10);
 let currentMainTab = "my";
 let deferredInstallPrompt = null;
+let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
 
 /* ---------------------------- 공통 유틸 ---------------------------- */
 
@@ -35,10 +36,40 @@ function applyI18n() {
 
 /* ---------------------------- 로그인 / 로그아웃 ---------------------------- */
 
+const LAST_LOGIN_KEY = "meal_last_login";
+
+// 마지막으로 로그인에 성공한 사번/이름을 저장해두면, 다음에 접속했을 때 입력칸에 자동으로 채워집니다.
+function saveLastLogin(employeeId, name) {
+  try {
+    localStorage.setItem(LAST_LOGIN_KEY, JSON.stringify({ employeeId, name }));
+  } catch (err) {
+    // 저장 공간을 사용할 수 없는 환경이면 조용히 무시합니다 (자동 저장은 편의 기능이라 필수는 아님).
+  }
+}
+
+function loadLastLogin() {
+  try {
+    const raw = localStorage.getItem(LAST_LOGIN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function prefillLoginForm() {
+  const saved = loadLastLogin();
+  if (!saved) return;
+  const idInput = document.getElementById("inputEmployeeId");
+  const nameInput = document.getElementById("inputName");
+  if (idInput && !idInput.value) idInput.value = saved.employeeId || "";
+  if (nameInput && !nameInput.value) nameInput.value = saved.name || "";
+}
+
 function showLoginView() {
   document.getElementById("loginView").classList.remove("hidden");
   document.getElementById("appView").classList.add("hidden");
   document.getElementById("topbar").classList.add("hidden");
+  prefillLoginForm();
 }
 
 function showAppView() {
@@ -46,14 +77,29 @@ function showAppView() {
   document.getElementById("appView").classList.remove("hidden");
   document.getElementById("topbar").classList.remove("hidden");
   const user = API.getUser();
+  const isContractor = user.employeeType === "contractor";
+  // 도급(단체) 계정은 "도급" 표시 대신 부서명 + 이름으로 보여줍니다 (예: 협력업체 OO건설).
+  const displayName = isContractor && user.department
+    ? `${escapeHtml(user.department)} ${escapeHtml(user.name)}`
+    : escapeHtml(user.name);
   document.getElementById("userBadge").innerHTML =
-    `${escapeHtml(user.name)} (${escapeHtml(user.employeeId)})` +
-    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "");
-  document.getElementById("tabAdmin").classList.toggle("hidden", user.role !== "admin");
-  if ("Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
+    `${displayName} (${escapeHtml(user.employeeId)})` +
+    (user.role === "admin" ? ` <span class="badge admin">${t("admin")}</span>` : "") +
+    (user.role === "manager" ? ` <span class="badge manager">${t("manager")}</span>` : "");
+  const isAdmin = user.role === "admin";
+  const isManager = user.role === "manager";
+  // 마스터 관리자 계정(시스템 최초 설치 시 자동 생성된 계정)만 "내 식사 신청" 메뉴를 숨기고 관리자 화면만 보여줍니다.
+  // 다른 직원에게 나중에 관리자 권한을 부여한 경우에는 예전처럼 관리자 화면과 식사 신청 화면을 모두 사용할 수 있습니다.
+  // 부서 운영자(role=manager)도 일반 직원과 동일하게 "내 식사 신청" 화면을 함께 사용할 수 있고, 추가로 운영자 화면을 봅니다.
+  const isMasterAdmin = !!user.isMasterAdmin;
+  document.getElementById("tabAdmin").classList.toggle("hidden", !isAdmin);
+  document.getElementById("tabManager").classList.toggle("hidden", !isManager);
+  document.getElementById("tabMy").classList.toggle("hidden", isMasterAdmin);
+  if (!isMasterAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
   }
-  switchMainTab("my");
+  updateInstallButtonVisibility();
+  switchMainTab(isMasterAdmin ? "admin" : "my");
   checkAnnouncement();
 }
 
@@ -70,6 +116,7 @@ async function doLogin() {
     const data = await API.request("POST", "/auth/login", { employeeId, name }, { silent: true });
     API.setToken(data.token);
     API.setUser(data.user);
+    saveLastLogin(employeeId, name);
     showAppView();
   } catch (err) {
     errEl.textContent = err.message;
@@ -89,10 +136,13 @@ function switchMainTab(tabName) {
   document.querySelectorAll("#mainTabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabName));
   document.getElementById("myView").classList.toggle("hidden", tabName !== "my");
   document.getElementById("adminView").classList.toggle("hidden", tabName !== "admin");
+  document.getElementById("managerView").classList.toggle("hidden", tabName !== "manager");
   if (tabName === "my") {
     loadWeek(currentWeekAnchor);
   } else if (tabName === "admin") {
     AdminUI.switchTab(AdminUI.currentTab || "status");
+  } else if (tabName === "manager") {
+    ManagerUI.switchTab(ManagerUI.currentTab || "status");
   }
 }
 
@@ -110,12 +160,81 @@ async function loadWeek(anchorDate) {
     const data = await API.get(`/reservations/week?date=${anchorDate}`);
     currentWeekAnchor = anchorDate;
     document.getElementById("weekLabel").textContent = weekLabelText(data.week);
-    document.getElementById("deadlineNote").textContent = t("deadlineNotice", data.deadline.hour, data.deadline.minute);
+    document.getElementById("deadlineNote").textContent = t(
+      "deadlineNotice",
+      data.deadline.lunch.hour,
+      data.deadline.lunch.minute,
+      data.deadline.dinner.hour,
+      data.deadline.dinner.minute
+    );
+    currentContractorTotalHeadcount = data.contractor && Number.isInteger(data.contractor.totalHeadcount) ? data.contractor.totalHeadcount : null;
     renderWeekGrid(data.days);
+    renderContractorToCard(data.contractor);
     checkTodayReminder(data.days);
+    checkMealRating();
   } catch (err) {
     grid.innerHTML = `<div>${escapeHtml(err.message)}</div>`;
   }
+}
+
+// 도급(단체) 계정 전용: 등록된 총원(TO)과, 대기 중인 총원 수정 요청이 있으면 함께 보여줍니다.
+function renderContractorToCard(contractor) {
+  const card = document.getElementById("contractorToCard");
+  if (!card) return;
+  if (!isContractorUser() || !contractor) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+    return;
+  }
+  card.classList.remove("hidden");
+  const user = API.getUser();
+  const total = Number.isInteger(contractor.totalHeadcount) ? contractor.totalHeadcount : null;
+  const pendingNotice = Number.isInteger(contractor.requestedHeadcount)
+    ? `<p class="deadline-note">${escapeHtml(t("requestHeadcountPendingNotice", contractor.requestedHeadcount))}</p>`
+    : "";
+  const cardTitle = user.department ? `${escapeHtml(user.department)} ${escapeHtml(user.name)}` : escapeHtml(user.name);
+  card.innerHTML = `
+    <h3 style="margin:0 0 8px;">${cardTitle}</h3>
+    <div class="summary-cards">
+      <div class="stat"><div class="num">${total !== null ? total : "-"}</div><div class="lbl">${t("totalHeadcount")}</div></div>
+    </div>
+    ${pendingNotice}
+    <div class="toolbar">
+      <button class="secondary" id="requestHeadcountBtn">${t("requestHeadcountChange")}</button>
+    </div>
+  `;
+  document.getElementById("requestHeadcountBtn").addEventListener("click", () => openHeadcountRequestModal(contractor));
+}
+
+function openHeadcountRequestModal(contractor) {
+  const total = Number.isInteger(contractor.totalHeadcount) ? contractor.totalHeadcount : "";
+  openModal(`
+    <h3>${t("requestHeadcountModalTitle")}</h3>
+    <div class="field"><label>${t("requestHeadcountCurrent")}</label><input value="${total !== "" ? total : "-"}" disabled></div>
+    <div class="field"><label>${t("requestHeadcountNew")}</label><input id="reqHeadcountInput" type="number" min="0" max="9999" value="${total}"></div>
+    <div class="field"><label>${t("requestHeadcountNote")}</label><textarea id="reqHeadcountNote" rows="3" style="width:100%;" placeholder="${t("requestHeadcountNotePlaceholder")}"></textarea></div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button id="reqHeadcountSubmitBtn">${t("requestHeadcountSubmit")}</button>
+      <button class="secondary" id="reqHeadcountCloseBtn">${t("close")}</button>
+    </div>
+  `);
+  document.getElementById("reqHeadcountCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("reqHeadcountSubmitBtn").addEventListener("click", async () => {
+    const n = parseInt(document.getElementById("reqHeadcountInput").value, 10);
+    if (!Number.isInteger(n) || n < 0 || n > 9999) {
+      alert(t("totalHeadcountPlaceholder"));
+      return;
+    }
+    const note = document.getElementById("reqHeadcountNote").value.trim();
+    try {
+      await API.post("/reservations/headcount-request", { requestedHeadcount: n, note });
+      closeModal();
+      showToast(t("requestHeadcountSent"));
+      loadWeek(currentWeekAnchor);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 }
 
 /* ---------------------------- 오늘자 미신청 안내 팝업 ---------------------------- */
@@ -155,6 +274,95 @@ function checkTodayReminder(days) {
       }
     });
   });
+}
+
+/* ---------------------------- 식사 만족도 평가(별점) ----------------------------
+   식사를 신청한 사람만, 정해진 시간대(중식 12:00~13:00 / 석식 17:00~18:00, 한국시간)에만
+   별점(1~5개, 20~100점)과 이유(사유)를 남길 수 있습니다. 시간대가 아니면 카드 자체가 보이지 않습니다. */
+
+let ratingSelected = { lunch: 0, dinner: 0 };
+
+async function checkMealRating() {
+  const card = document.getElementById("ratingCard");
+  if (!card) return;
+  try {
+    const data = await API.get("/rating/today");
+    const meals = ["lunch", "dinner"].filter((m) => data[m] && (data[m].eligible || (data[m].windowOpen && data[m].myRating)));
+    if (!meals.length) {
+      card.classList.add("hidden");
+      card.innerHTML = "";
+      return;
+    }
+    card.classList.remove("hidden");
+    card.innerHTML = `
+      <h2 style="margin-top:0;">${t("satisfactionCardTitle")}</h2>
+      ${meals.map((m) => renderRatingSection(m, data[m])).join("")}
+    `;
+    meals.forEach((m) => {
+      ratingSelected[m] = data[m].myRating ? data[m].myRating.stars : 0;
+      wireRatingSection(m);
+    });
+  } catch (err) {
+    card.classList.add("hidden");
+    card.innerHTML = "";
+  }
+}
+
+function renderRatingSection(mealType, info) {
+  const mealLabel = mealType === "lunch" ? t("lunch") : t("dinner");
+  const stars = info.myRating ? info.myRating.stars : 0;
+  const reason = info.myRating ? info.myRating.reason : "";
+  const starsHtml = [1, 2, 3, 4, 5].map((n) => `
+    <button type="button" class="star-btn ${n <= stars ? "selected" : ""}" data-meal="${mealType}" data-star="${n}">★</button>
+  `).join("");
+  return `
+    <div class="rating-section" data-meal-section="${mealType}">
+      <div class="rating-section-title">${mealLabel} <span class="deadline-note" style="display:inline;">(${escapeHtml(info.windowLabel)})</span></div>
+      <div class="star-rating" data-meal="${mealType}">${starsHtml}</div>
+      <textarea class="rating-reason" data-meal="${mealType}" rows="2" maxlength="500" placeholder="${t("satisfactionReasonPlaceholder")}">${escapeHtml(reason)}</textarea>
+      <div class="toolbar">
+        <button data-rating-submit="${mealType}">${info.myRating ? t("satisfactionUpdate") : t("satisfactionSubmit")}</button>
+        ${info.myRating ? `<span class="deadline-note" style="display:inline;">${t("satisfactionSubmitted")}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function wireRatingSection(mealType) {
+  const section = document.querySelector(`[data-meal-section="${mealType}"]`);
+  if (!section) return;
+  section.querySelectorAll(`.star-btn[data-meal="${mealType}"]`).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      ratingSelected[mealType] = parseInt(btn.dataset.star, 10);
+      section.querySelectorAll(`.star-btn[data-meal="${mealType}"]`).forEach((b) => {
+        b.classList.toggle("selected", parseInt(b.dataset.star, 10) <= ratingSelected[mealType]);
+      });
+    });
+  });
+  const submitBtn = section.querySelector(`[data-rating-submit="${mealType}"]`);
+  if (submitBtn) submitBtn.addEventListener("click", () => submitRating(mealType));
+}
+
+async function submitRating(mealType) {
+  const section = document.querySelector(`[data-meal-section="${mealType}"]`);
+  const stars = ratingSelected[mealType];
+  const reasonInput = section ? section.querySelector(".rating-reason") : null;
+  const reason = reasonInput ? reasonInput.value.trim() : "";
+  if (!stars) {
+    alert(t("satisfactionStarRequired"));
+    return;
+  }
+  if (!reason) {
+    alert(t("satisfactionReasonRequired"));
+    return;
+  }
+  try {
+    await API.post("/rating", { mealType, stars, reason });
+    showToast(t("satisfactionSubmitted"));
+    checkMealRating();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 /* ---------------------------- 공지사항 배너 ---------------------------- */
@@ -222,12 +430,77 @@ async function toggleMenuView() {
   }
 }
 
+/* ---------------------------- 접속 링크 공유 / QR코드 ---------------------------- */
+
+// 로그인한 화면 상단의 "접속 링크 공유" 버튼을 누르면, 이 사이트 주소를 복사하거나
+// QR코드를 스캔해서 다른 직원에게 전달할 수 있는 모달을 보여줍니다.
+function openShareLinkModal() {
+  const url = window.location.origin + "/";
+  const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(url)}`;
+  openModal(`
+    <h3>${t("shareLinkTitle")}</h3>
+    <p class="deadline-note">${t("shareLinkHelp")}</p>
+    <div class="field">
+      <input id="shareLinkInput" value="${escapeHtml(url)}" readonly style="width:100%;">
+    </div>
+    <div class="toolbar">
+      <button id="copyLinkBtn">${t("copyLink")}</button>
+      <button class="secondary" id="shareLinkCloseBtn">${t("close")}</button>
+    </div>
+    <div style="text-align:center;margin-top:16px;">
+      <img src="${qrImgUrl}" alt="QR" width="220" height="220"
+        style="border-radius:8px;border:1px solid var(--border);"
+        onerror="this.style.display='none'; document.getElementById('qrFallbackMsg').style.display='block';">
+      <p id="qrFallbackMsg" class="deadline-note" style="display:none;">${t("qrLoadFailed")}</p>
+    </div>
+  `);
+  document.getElementById("shareLinkCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("copyLinkBtn").addEventListener("click", async () => {
+    const input = document.getElementById("shareLinkInput");
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (err) {
+      input.removeAttribute("readonly");
+      input.select();
+      document.execCommand("copy");
+      input.setAttribute("readonly", "readonly");
+    }
+    showToast(t("linkCopied"));
+  });
+}
+
 /* ---------------------------- PWA 설치 ---------------------------- */
+
+// 아이폰/아이패드의 Safari는 beforeinstallprompt 이벤트를 지원하지 않아 자동 설치 팝업을 띄울 수 없습니다.
+// 대신 기기를 감지해서 "공유 버튼 → 홈 화면에 추가" 방법을 안내하는 모달을 보여줍니다.
+function isIOSDevice() {
+  const ua = navigator.userAgent || "";
+  // iPadOS 13+는 데스크톱 Safari로 위장하므로 터치 지원 + Mac 플랫폼 조합으로 함께 판별합니다.
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneMode() {
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+}
+
+// 로그인 후 화면에 진입할 때마다 기기/설치 상태에 맞춰 "앱 설치" 버튼 표시 여부를 갱신합니다.
+function updateInstallButtonVisibility() {
+  const btn = document.getElementById("installBtn");
+  if (isStandaloneMode()) {
+    btn.classList.add("hidden");
+    return;
+  }
+  if (isIOSDevice()) {
+    btn.classList.remove("hidden");
+  } else if (deferredInstallPrompt) {
+    btn.classList.remove("hidden");
+  }
+}
 
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  document.getElementById("installBtn").classList.remove("hidden");
+  if (!isStandaloneMode()) document.getElementById("installBtn").classList.remove("hidden");
 });
 
 window.addEventListener("appinstalled", () => {
@@ -236,11 +509,57 @@ window.addEventListener("appinstalled", () => {
 });
 
 async function onInstallClick() {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  document.getElementById("installBtn").classList.add("hidden");
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    document.getElementById("installBtn").classList.add("hidden");
+    return;
+  }
+  if (isIOSDevice()) {
+    openIosInstallGuide();
+  }
+}
+
+function openIosInstallGuide() {
+  openModal(`
+    <h3>${t("iosInstallTitle")}</h3>
+    <div class="ios-install-steps">
+      <p><span class="badge admin">1</span> ${t("iosInstallStep1")}</p>
+      <p><span class="badge admin">2</span> ${t("iosInstallStep2")}</p>
+      <p><span class="badge admin">3</span> ${t("iosInstallStep3")}</p>
+    </div>
+    <div class="toolbar" style="margin-top:14px;">
+      <button class="secondary" id="iosInstallCloseBtn">${t("close")}</button>
+    </div>
+  `);
+  document.getElementById("iosInstallCloseBtn").addEventListener("click", closeModal);
+}
+
+/* ---------------------------- 업데이트 확인 (PWA로 설치한 경우 옛 버전이 캐시에 남아있을 수 있어 수동 갱신 제공) ---------------------------- */
+
+async function checkForUpdate() {
+  if (!confirm(t("updateConfirm"))) return;
+  const btn = document.getElementById("checkUpdateBtn");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t("updateChecking");
+  }
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    // 캐시/서비스워커를 정리한 뒤 새로고침하면 서버의 최신 파일을 새로 받아옵니다.
+    location.reload();
+  }
 }
 
 /* ---------------------------- 휴대폰(웹 푸시) 알림 구독 ---------------------------- */
@@ -298,12 +617,14 @@ function renderWeekGrid(days) {
   grid.innerHTML = days.map((day) => {
     const wd = WEEKDAY_KEYS[new Date(day.date + "T00:00:00Z").getUTCDay()];
     const isToday = day.date === today;
+    const dayTypeCls = day.dayType === "holiday" ? "holiday" : day.dayType === "weekend" ? "weekend" : "";
+    const holidayTag = day.dayType === "holiday" && day.holidayLabel ? ` <span class="holiday-tag">${escapeHtml(day.holidayLabel)}</span>` : "";
     return `
-      <div class="day-cell ${isToday ? "today" : ""}">
+      <div class="day-cell ${isToday ? "today" : ""} ${dayTypeCls}">
         <div class="date-label">${day.date.slice(5)}</div>
-        <div class="weekday-label">${t(wd)}</div>
-        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch)}
-        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner)}
+        <div class="weekday-label">${t(wd)}${holidayTag}</div>
+        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch) + renderGuestRow(day.date, "lunch", day.lunch)}
+        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner) + renderGuestRow(day.date, "dinner", day.dinner)}
       </div>
     `;
   }).join("");
@@ -314,18 +635,63 @@ function renderWeekGrid(days) {
   grid.querySelectorAll("button[data-headcount-save]").forEach((btn) => {
     btn.addEventListener("click", onHeadcountSaveClick);
   });
+  grid.querySelectorAll("button[data-guest-save]").forEach((btn) => {
+    btn.addEventListener("click", onGuestSaveClick);
+  });
+}
+
+// 개인 직원용: 이미 신청한 끼니에 한해 함께 식사할 손님/내방객 인원을 추가로 등록할 수 있습니다.
+function renderGuestRow(date, mealType, info) {
+  if (!info.applied) return "";
+  const editable = info.canCancel; // 신청 취소와 동일한 마감 규칙을 적용합니다.
+  const value = info.guestCount || 0;
+  return `
+    <div class="meal-row guest-row" data-date="${date}" data-meal="${mealType}">
+      <div class="meal-name">${t("guestCountLabel")}</div>
+      <input type="number" min="0" max="99" class="guest-input" placeholder="0" value="${value}" ${editable ? "" : "disabled"}>
+      <button data-guest-save class="secondary" ${editable ? "" : "disabled"}>${t("save")}</button>
+    </div>
+  `;
+}
+
+async function onGuestSaveClick(e) {
+  const btn = e.currentTarget;
+  const row = btn.closest(".guest-row");
+  const date = row.dataset.date;
+  const meal = row.dataset.meal;
+  const input = row.querySelector(".guest-input");
+  const raw = input.value.trim();
+  const n = raw === "" ? 0 : parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 0 || n > 99) {
+    alert(t("guestCountPlaceholder"));
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await API.put("/reservations/guest-count", { date, mealType: meal, guestCount: n });
+    showToast(t("guestCountSaved"));
+    loadWeek(currentWeekAnchor);
+  } catch (err) {
+    alert(err.message);
+    loadWeek(currentWeekAnchor);
+  }
 }
 
 // 도급회사(단체) 계정용: 토글 버튼 대신 인원수를 숫자로 입력해 신청/수정/취소(0 입력)합니다.
+// totalHeadcount(TO)가 등록되어 있으면 신청 인원과 미신청 인원을 함께 보여줍니다.
 function renderHeadcountRow(date, mealType, info) {
   const mealLabel = t(mealType);
   const editable = info.canApply; // 신청 가능 여부와 취소(변경) 가능 여부가 동일한 규칙이라 하나로 사용합니다.
   const value = info.headcount ? info.headcount : "";
+  const breakdown = currentContractorTotalHeadcount !== null
+    ? `<div class="deadline-note" style="width:100%;margin:2px 0 0;">${t("appliedOfTotal", info.headcount, currentContractorTotalHeadcount)} · ${t("notAppliedCount")} ${info.notApplied ?? Math.max(currentContractorTotalHeadcount - info.headcount, 0)}</div>`
+    : "";
   return `
     <div class="meal-row headcount-row" data-date="${date}" data-meal="${mealType}">
       <div class="meal-name">${mealLabel}</div>
       <input type="number" min="0" max="9999" class="headcount-input" placeholder="${t("headcountPlaceholder")}" value="${value}" ${editable ? "" : "disabled"}>
       <button data-headcount-save ${editable ? "" : "disabled"}>${t("saveHeadcount")}</button>
+      ${breakdown}
     </div>
   `;
 }
@@ -422,6 +788,7 @@ function initLangSelectors() {
       applyI18n();
       if (!document.getElementById("appView").classList.contains("hidden")) {
         if (currentMainTab === "my") loadWeek(currentWeekAnchor);
+        else if (currentMainTab === "manager" && ManagerUI.currentTab) ManagerUI.switchTab(ManagerUI.currentTab);
         else if (AdminUI.currentTab) AdminUI.switchTab(AdminUI.currentTab);
       }
     });
@@ -441,6 +808,8 @@ function init() {
   document.getElementById("toggleMenuBtn").addEventListener("click", toggleMenuView);
   document.getElementById("installBtn").addEventListener("click", onInstallClick);
   document.getElementById("notifyBtn").addEventListener("click", enableNotifications);
+  document.getElementById("checkUpdateBtn").addEventListener("click", checkForUpdate);
+  document.getElementById("shareLinkBtn").addEventListener("click", openShareLinkModal);
 
   document.querySelectorAll("#mainTabs button").forEach((b) => {
     b.addEventListener("click", () => switchMainTab(b.dataset.tab));
