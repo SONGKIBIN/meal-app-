@@ -8,11 +8,19 @@
 //    별도 신청 없이 자동으로 탑승자 명단에 포함되는 날인지 여부입니다. 평일(월~금)이고 공휴일이
 //    아닌 날에만 자동 적용되며, 주말/공휴일에는 차량이 운행하더라도 직원이 그때그때 명시적으로
 //    신청해야 합니다.
+//    단, 이 자동 탑승은 "commute"(출근)에만 적용됩니다(AUTO_DEFAULT_TRIP_TYPES 참고). 정시퇴근/연장퇴근은
+//    직원이 하루에 한 번만 퇴근하므로 자동 탑승 대상이 아니며, 그날그날 둘 중 하나를 직접 선택(신청)해야
+//    합니다 — 등록된 기본 차량은 신청 시 차량을 다시 고르지 않아도 되도록 값만 채워주는 참고용입니다.
 const Holiday = require("../models/Holiday");
 const BusOperationDay = require("../models/BusOperationDay");
 const { isWeekendDate, fixedHolidayLabel } = require("./dateUtil");
 
 const TRIP_TYPES = ["commute", "regularLeave", "extendedLeave"];
+// 기본 등록(BusDefaultRide)이 별도 신청 없이 자동으로 탑승 처리되는 운행구분입니다.
+const AUTO_DEFAULT_TRIP_TYPES = ["commute"];
+// 하루에 하나만 선택 가능한(상호 배타적인) 퇴근 운행구분입니다 - 정시퇴근차를 신청하면 연장퇴근차는
+// 자동으로 취소되고, 그 반대도 마찬가지입니다.
+const MUTUALLY_EXCLUSIVE_TRIP_GROUPS = [["regularLeave", "extendedLeave"]];
 
 // "기본 등록"이 별도 신청 없이 자동으로 탑승자 명단에 포함되는 날인지 여부 (평일 + 공휴일 아님).
 async function isDefaultOperatingDay(date) {
@@ -58,4 +66,11 @@ async function resolveOperationMap(date, vehicleIds, tripTypes = TRIP_TYPES) {
   return { defaultOn, map: result };
 }
 
-module.exports = { TRIP_TYPES, isDefaultOperatingDay, isDefaultOperatingDayBulk, resolveOperationMap };
+module.exports = {
+  TRIP_TYPES,
+  AUTO_DEFAULT_TRIP_TYPES,
+  MUTUALLY_EXCLUSIVE_TRIP_GROUPS,
+  isDefaultOperatingDay,
+  isDefaultOperatingDayBulk,
+  resolveOperationMap,
+};

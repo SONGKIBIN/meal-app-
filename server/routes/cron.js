@@ -14,7 +14,6 @@ const { sendMail } = require("../utils/mailer");
 const {
   getKSTParts,
   addDays,
-  weekdayOf,
   LUNCH_DEADLINE_HOUR,
   LUNCH_DEADLINE_MINUTE,
   DINNER_DEADLINE_HOUR,
@@ -156,7 +155,6 @@ router.get("/tick", async (req, res) => {
               const vehicleIds = vehicles.map((v) => String(v._id));
               const { map: opMap } = await resolveOperationMap(yesterday, vehicleIds);
               const isDefaultDay = (await isDefaultOperatingDayBulk([yesterday]))[yesterday];
-              const dow = weekdayOf(yesterday);
               const [allDefaults, explicitForDate, logs] = await Promise.all([
                 vehicleIds.length ? BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean() : [],
                 vehicleIds.length ? BusRide.find({ date: yesterday, vehicleId: { $in: vehicleIds } }).lean() : [],
@@ -164,7 +162,7 @@ router.get("/tick", async (req, res) => {
               ]);
               const headcountMap = new Map();
               for (const tripType of TRIP_TYPES) {
-                const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
+                const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
                 for (const vId of vehicleIds) {
                   const count = (ridersByVehicle[vId] || []).reduce((sum, r) => sum + (r.headcount || 1), 0);
                   headcountMap.set(`${vId}_${tripType}`, count);

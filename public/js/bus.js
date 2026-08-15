@@ -1,12 +1,12 @@
 /* 통근버스 승차 신청 (일반 직원 + 도급/단체 계정) */
 
 const TRIP_TYPES_CLIENT = ["commute", "regularLeave", "extendedLeave"];
-const DEFAULT_WEEKDAYS_CLIENT = [1, 2, 3, 4, 5]; // 월~금 (기본 등록은 평일에만 자동 적용되므로)
 
 const BusUI = {
   weekAnchor: null,
   weekData: null,
   currentTrip: "commute",
+  defaultEditMode: false, // "내가 타는 차" 등록을 수정 중인지 (탭별로 별도 유지할 필요 없이 전환 시 초기화)
 
   async load(anchorDate) {
     const container = document.getElementById("busApplyView");
@@ -16,6 +16,7 @@ const BusUI = {
       const data = await API.get(`/bus/week?date=${anchor}`);
       this.weekAnchor = anchor;
       this.weekData = data;
+      this.defaultEditMode = false;
       this.render(data);
     } catch (err) {
       container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
@@ -58,6 +59,7 @@ const BusUI = {
     document.querySelectorAll("#busTripTabs button").forEach((b) => {
       b.addEventListener("click", () => {
         this.currentTrip = b.dataset.tripTab;
+        this.defaultEditMode = false;
         this.renderTripContent();
       });
     });
@@ -74,75 +76,66 @@ const BusUI = {
     this.renderWeekGrid(this.weekData);
   },
 
-  /* -------------------- 내 기본(평소) 탑승 차량 등록 (요일별 주간 그리드) -------------------- */
+  /* -------------------- 내 기본(평소) 탑승 차량 등록 (트립타입당 1개, 한 번 등록하면 고정) -------------------- */
 
   renderDefaultRow(data) {
     const tripType = this.currentTrip;
     const holder = document.getElementById("busDefaultRowContainer");
-    const defaultsForTrip = (data.myDefaults || []).filter((d) => d.tripType === tripType);
-    const byDow = new Map(defaultsForTrip.map((d) => [d.dayOfWeek, d]));
+    const def = (data.myDefaults || []).find((d) => d.tripType === tripType && d.vehicleId);
     const vehicles = data.vehicles || [];
 
+    if (def && !this.defaultEditMode) {
+      holder.innerHTML = `
+        <div class="meal-row bus-row applied">
+          <div class="deadline-note" style="display:inline;">${escapeHtml(def.routeName)} (${escapeHtml(def.vehicleName)}) · ${escapeHtml(def.stop)}${isContractorUser() ? ` (${def.headcount}${t("headcountUnit")})` : ""}</div>
+          <button class="secondary" data-default-edit>${t("busEditDefault")}</button>
+          <button class="secondary" data-default-remove>${t("busRemoveDefault")}</button>
+        </div>
+      `;
+      this.wireDefaultCard(null);
+      return;
+    }
+
+    if (!vehicles.length) {
+      holder.innerHTML = `<div class="meal-row bus-row disabled-row"><div class="deadline-note">${t("busNoVehicleYet")}</div></div>`;
+      return;
+    }
+
+    const options = vehicles.map((v) => `<option value="${v.vehicleId}">${escapeHtml(v.routeName)} (${escapeHtml(v.name)})</option>`).join("");
     holder.innerHTML = `
-      <div class="week-grid">
-        ${DEFAULT_WEEKDAYS_CLIENT.map((dow) => {
-          const wd = WEEKDAY_KEYS[dow];
-          const def = byDow.get(dow);
-          if (def && def.vehicleId) {
-            return `
-              <div class="day-cell">
-                <div class="weekday-label">${t(wd)}</div>
-                <div class="meal-row bus-row applied" data-default-dow="${dow}">
-                  <div class="deadline-note" style="display:inline;">${escapeHtml(def.routeName)} (${escapeHtml(def.vehicleName)}) · ${escapeHtml(def.stop)}${isContractorUser() ? ` (${def.headcount}${t("headcountUnit")})` : ""}</div>
-                  <button class="secondary" data-default-remove>${t("busRemoveDefault")}</button>
-                </div>
-              </div>
-            `;
-          }
-          if (!vehicles.length) {
-            return `
-              <div class="day-cell">
-                <div class="weekday-label">${t(wd)}</div>
-                <div class="meal-row bus-row disabled-row"><div class="deadline-note">${t("busNoVehicleYet")}</div></div>
-              </div>
-            `;
-          }
-          const options = vehicles.map((v) => `<option value="${v.vehicleId}">${escapeHtml(v.routeName)} (${escapeHtml(v.name)})</option>`).join("");
-          return `
-            <div class="day-cell">
-              <div class="weekday-label">${t(wd)}</div>
-              <div class="meal-row bus-row" data-default-dow="${dow}">
-                <select class="bus-default-vehicle-select" data-vehicles='${escapeHtml(JSON.stringify(vehicles))}'>${options}</select>
-                <select class="bus-default-stop-select"></select>
-                ${isContractorUser() ? `<input type="number" class="bus-default-headcount-input" min="1" max="9999" value="1" style="width:70px;">` : ""}
-                <button data-default-save>${t("busRegisterDefault")}</button>
-              </div>
-            </div>
-          `;
-        }).join("")}
+      <div class="meal-row bus-row" data-default-form>
+        <select class="bus-default-vehicle-select" data-vehicles='${escapeHtml(JSON.stringify(vehicles))}'>${options}</select>
+        <select class="bus-default-stop-select"></select>
+        ${isContractorUser() ? `<input type="number" class="bus-default-headcount-input" min="1" max="9999" value="${def ? def.headcount : 1}" style="width:70px;">` : ""}
+        <button data-default-save>${t("busRegisterDefault")}</button>
+        ${def ? `<button class="secondary" data-default-edit-cancel>${t("cancel")}</button>` : ""}
       </div>
     `;
-    this.wireDefaultCard();
+    this.wireDefaultCard(def);
   },
 
-  wireDefaultCard() {
+  wireDefaultCard(defToPrefill) {
     const card = document.getElementById("busDefaultCard");
     card.querySelectorAll(".bus-default-vehicle-select").forEach((sel) => {
+      if (defToPrefill) sel.value = defToPrefill.vehicleId;
       sel.addEventListener("change", () => this.onVehicleSelectChange(sel, ".bus-default-stop-select"));
       this.onVehicleSelectChange(sel, ".bus-default-stop-select");
+      if (defToPrefill) {
+        const stopSelect = sel.closest(".bus-row").querySelector(".bus-default-stop-select");
+        if (stopSelect) stopSelect.value = defToPrefill.stop;
+      }
     });
     card.querySelectorAll("[data-default-save]").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
-        const row = e.currentTarget.closest("[data-default-dow]");
-        const dayOfWeek = parseInt(row.dataset.defaultDow, 10);
+      btn.addEventListener("click", async () => {
         const tripType = this.currentTrip;
+        const row = document.querySelector("#busDefaultRowContainer [data-default-form]");
         const vehicleId = row.querySelector(".bus-default-vehicle-select").value;
         const stop = row.querySelector(".bus-default-stop-select").value;
         if (!stop) {
           alert(t("busSelectStop"));
           return;
         }
-        const body = { tripType, dayOfWeek, vehicleId, stop };
+        const body = { tripType, vehicleId, stop };
         if (isContractorUser()) {
           const n = parseInt(row.querySelector(".bus-default-headcount-input").value, 10);
           if (!Number.isInteger(n) || n < 1 || n > 9999) {
@@ -154,21 +147,33 @@ const BusUI = {
         try {
           await API.post("/bus/default", body);
           showToast(t("busDefaultSaved"));
+          this.defaultEditMode = false;
           this.load(this.weekAnchor);
         } catch (err) {
           alert(err.message);
         }
       });
     });
+    card.querySelectorAll("[data-default-edit]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.defaultEditMode = true;
+        this.renderDefaultRow(this.weekData);
+      });
+    });
+    card.querySelectorAll("[data-default-edit-cancel]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.defaultEditMode = false;
+        this.renderDefaultRow(this.weekData);
+      });
+    });
     card.querySelectorAll("[data-default-remove]").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
+      btn.addEventListener("click", async () => {
         if (!confirm(t("confirmCancel"))) return;
-        const row = e.currentTarget.closest("[data-default-dow]");
-        const dayOfWeek = parseInt(row.dataset.defaultDow, 10);
         const tripType = this.currentTrip;
         try {
-          await API.post("/bus/default", { tripType, dayOfWeek, vehicleId: "" });
+          await API.post("/bus/default", { tripType, vehicleId: "" });
           showToast(t("cancelSuccess"));
+          this.defaultEditMode = false;
           this.load(this.weekAnchor);
         } catch (err) {
           alert(err.message);
@@ -198,6 +203,7 @@ const BusUI = {
     }).join("");
 
     grid.querySelectorAll("[data-bus-apply]").forEach((btn) => btn.addEventListener("click", (e) => this.onApplyClick(e)));
+    grid.querySelectorAll("[data-bus-quick-apply]").forEach((btn) => btn.addEventListener("click", (e) => this.onQuickApplyClick(e)));
     grid.querySelectorAll("[data-bus-cancel]").forEach((btn) => btn.addEventListener("click", (e) => this.onCancelClick(e)));
     grid.querySelectorAll(".bus-vehicle-select").forEach((sel) => {
       sel.addEventListener("change", () => this.onVehicleSelectChange(sel, ".bus-stop-select"));
@@ -228,11 +234,29 @@ const BusUI = {
       `;
     }
     const cancelledNote = my.via === "cancelled" ? `<div class="deadline-note">${t("busDefaultCancelledNote")}</div>` : "";
+    const siblingNote = info.siblingApplied
+      ? `<div class="deadline-note">${t("busSiblingAppliedNote", t(`busTrip_${info.siblingApplied.tripType}`))}</div>`
+      : "";
+
+    // 정시퇴근/연장퇴근처럼 자동 탑승 대상이 아닌 운행구분(hasDefault)은 이미 "내가 타는 차"가 등록되어
+    // 있으면 차량을 다시 고를 필요 없이 버튼 한 번으로 그날 신청할 수 있게 합니다.
+    if (!info.autoApplies && info.hasDefault) {
+      return `
+        <div class="meal-row bus-row" data-date="${date}" data-trip="${tripType}">
+          <div class="meal-name">${label}</div>
+          ${cancelledNote}
+          ${siblingNote}
+          <button data-bus-quick-apply>${t("busApplyBtn")}</button>
+        </div>
+      `;
+    }
+
     const options = enabledVehicles.map((v) => `<option value="${v.vehicleId}">${escapeHtml(v.routeName)} (${escapeHtml(v.name)})</option>`).join("");
     return `
       <div class="meal-row bus-row" data-date="${date}" data-trip="${tripType}">
         <div class="meal-name">${label}</div>
         ${cancelledNote}
+        ${siblingNote}
         <select class="bus-vehicle-select" data-vehicles='${escapeHtml(JSON.stringify(enabledVehicles))}'>${options}</select>
         <select class="bus-stop-select"></select>
         ${isContractorUser() ? `<input type="number" class="bus-headcount-input" min="1" max="9999" value="1" style="width:70px;">` : ""}
@@ -270,6 +294,20 @@ const BusUI = {
     }
     try {
       await API.post("/bus/ride", body);
+      showToast(t("busApplySuccess"));
+      this.load(this.weekAnchor);
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  // 등록된 "내가 타는 차"를 그대로 사용하는 1클릭 신청 (정시퇴근/연장퇴근 등 - 차량을 다시 고를 필요 없음).
+  async onQuickApplyClick(e) {
+    const row = e.currentTarget.closest(".bus-row");
+    const date = row.dataset.date;
+    const tripType = row.dataset.trip;
+    try {
+      await API.post("/bus/ride", { date, tripType });
       showToast(t("busApplySuccess"));
       this.load(this.weekAnchor);
     } catch (err) {
