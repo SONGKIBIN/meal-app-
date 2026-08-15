@@ -221,6 +221,14 @@ table.data-table th, table.data-table td {
 }
 table.data-table th { background: #f0f2f6; }
 .table-wrap { overflow-x: auto; }
+.row-actions {
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.row-actions button { padding: 6px 9px; font-size: 0.8rem; white-space: nowrap; }
 
 .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .toolbar .spacer { flex: 1; }

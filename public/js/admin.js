@@ -427,7 +427,11 @@ const AdminUI = {
           <button class="${this.empStatusFilter === "active" ? "active" : ""}" data-status-filter="active">${t("statusActiveFilter")}</button>
           <button class="${this.empStatusFilter === "inactive" ? "active" : ""}" data-status-filter="inactive">${t("statusInactiveFilter")}</button>
         </div>
-        <div class="table-wrap"><table class="data-table" id="empTable">
+        <div class="table-wrap"><table class="data-table" id="empTable" style="table-layout:fixed;">
+          <colgroup>
+            <col style="width:10%"><col style="width:9%"><col style="width:17%">
+            <col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:34%">
+          </colgroup>
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("employeeType")}</th><th>${t("role")}</th><th>${t("active")}</th><th></th></tr></thead>
           <tbody><tr><td colspan="7">${t("loading")}</td></tr></tbody>
         </table></div>
@@ -596,11 +600,15 @@ const AdminUI = {
         ? ` <span class="badge admin" title="${escapeHtml(t("requestHeadcountChange"))}">→${e.requestedHeadcount}</span>`
         : "";
       const actions = e.active
-        ? `<button class="secondary" data-edit="${e._id}">${t("edit")}</button>
-           <button class="danger" data-del="${e._id}">${t("delete")}</button>`
-        : `<button class="secondary" data-edit="${e._id}">${t("edit")}</button>
-           <button class="secondary" data-restore="${e._id}">${t("restoreEmployee")}</button>
-           <button class="danger" data-permdel="${e._id}" title="${escapeHtml(t("permanentDeleteHelp"))}">${t("permanentDelete")}</button>`;
+        ? `<div class="row-actions">
+             <button class="secondary" data-edit="${e._id}">${t("edit")}</button>
+             <button class="danger" data-del="${e._id}">${t("delete")}</button>
+           </div>`
+        : `<div class="row-actions">
+             <button class="secondary" data-edit="${e._id}">${t("edit")}</button>
+             <button class="secondary" data-restore="${e._id}">${t("restoreEmployee")}</button>
+             <button class="danger" data-permdel="${e._id}" title="${escapeHtml(t("permanentDeleteHelp"))}">${t("permanentDelete")}</button>
+           </div>`;
       return `
         <tr>
           <td>${escapeHtml(e.employeeId)}</td>
