@@ -68,8 +68,8 @@ router.get("/today", async (req, res) => {
   }
 });
 
-// 주간단위 운행명령: 이번 주(월~일) 각 차량 x 운행구분별 운행 여부를 읽기 전용으로 보여줍니다.
-// (운행 여부 지정 자체는 통근 차량 관리 관리자/마스터만 가능 - 기사는 확인만 가능)
+// 주간단위 운행명령: 이번 주(월~일) 각 차량 x 운행구분별 운행 여부와 탑승자 명단(사번/부서/이름)을
+// 읽기 전용으로 보여줍니다. (운행 여부/신청 취소 지정 자체는 통근 차량 관리 관리자/마스터만 가능 - 기사는 확인만 가능)
 router.get("/week-operation", async (req, res) => {
   try {
     const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
@@ -77,9 +77,16 @@ router.get("/week-operation", async (req, res) => {
     const vehicles = await Vehicle.find({ active: true }).populate("routeId").sort({ name: 1 }).lean();
     const vehicleIds = vehicles.map((v) => String(v._id));
 
+    const defaultDayMap = await isDefaultOperatingDayBulk(week);
+    const allDefaults = vehicleIds.length ? await BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean() : [];
+    const weekExplicit = vehicleIds.length ? await BusRide.find({ date: { $in: week }, vehicleId: { $in: vehicleIds } }).lean() : [];
+
     const days = [];
     for (const date of week) {
       const { map: opMap } = await resolveOperationMap(date, vehicleIds);
+      const isDefaultDay = !!defaultDayMap[date];
+      const dow = weekdayOf(date);
+      const explicitForDate = weekExplicit.filter((r) => r.date === date);
       days.push({
         date,
         vehicles: vehicles.map((v) => {
@@ -88,11 +95,18 @@ router.get("/week-operation", async (req, res) => {
             vehicleId: vId,
             name: v.name,
             routeName: v.routeId ? v.routeId.name : "",
-            trips: TRIP_TYPES.map((tripType) => ({
-              tripType,
-              label: TRIP_LABEL[tripType],
-              enabled: opMap[vId] ? opMap[vId][tripType].enabled : false,
-            })),
+            trips: TRIP_TYPES.map((tripType) => {
+              const enabled = opMap[vId] ? opMap[vId][tripType].enabled : false;
+              const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
+              const riders = (ridersByVehicle[vId] || []).slice().sort((a, b) => (a.department || "").localeCompare(b.department || "") || (a.employeeName || "").localeCompare(b.employeeName || ""));
+              return {
+                tripType,
+                label: TRIP_LABEL[tripType],
+                enabled,
+                appliedHeadcount: riders.reduce((sum, r) => sum + (r.headcount || 1), 0),
+                riders,
+              };
+            }),
           };
         }),
       });

@@ -221,7 +221,9 @@ const DriverUI = {
     const data = this.weekData;
     const content = document.getElementById("drvWeekTripContent");
     const vehicleNames = data.days[0] ? data.days[0].vehicles.map((v) => `${v.routeName} ${v.name}`) : [];
+    const riderLine = (r) => `${escapeHtml(r.employeeId)} ${escapeHtml(r.department || "")} ${escapeHtml(r.employeeName)}${r.headcount > 1 ? `(${r.headcount})` : ""}`.trim();
     content.innerHTML = `
+      <p class="deadline-note">${t("driverWeekRidersHelp")}</p>
       <table class="data-table">
         <thead><tr><th>${t("date")}</th>${vehicleNames.map((n) => `<th>${escapeHtml(n)}</th>`).join("")}</tr></thead>
         <tbody>
@@ -230,7 +232,14 @@ const DriverUI = {
               <td>${day.date}</td>
               ${day.vehicles.map((v) => {
                 const tp = v.trips.find((t2) => t2.tripType === tripType);
-                return `<td>${tp && tp.enabled ? t("busOperating") : t("busNotOperating")}</td>`;
+                if (!tp || !tp.enabled) return `<td>${t("busNotOperating")}</td>`;
+                const riders = (tp.riders || []).map(riderLine).join("<br>");
+                return `
+                  <td>
+                    <div>${t("busOperating")} (${tp.appliedHeadcount}${t("headcountUnit")})</div>
+                    <div class="deadline-note">${riders || t("noData")}</div>
+                  </td>
+                `;
               }).join("")}
             </tr>
           `).join("")}
