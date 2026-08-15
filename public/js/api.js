@@ -61,13 +61,13 @@ const API = {
   get(path) {
     return this.request("GET", path);
   },
-  post(path, body) {
-    return this.request("POST", path, body);
+  post(path, body, opts) {
+    return this.request("POST", path, body, opts || {});
   },
-  put(path, body) {
-    return this.request("PUT", path, body);
+  put(path, body, opts) {
+    return this.request("PUT", path, body, opts || {});
   },
-  del(path, body) {
-    return this.request("DELETE", path, body);
+  del(path, body, opts) {
+    return this.request("DELETE", path, body, opts || {});
   },
 };

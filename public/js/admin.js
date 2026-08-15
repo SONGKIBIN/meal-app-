@@ -1282,7 +1282,9 @@ const AdminUI = {
       return;
     }
     try {
-      await API.post("/master/bus-system", { enabled, note, password });
+      // 여기서의 401(비밀번호 불일치)은 로그인 세션 만료가 아니라 입력값 오류이므로,
+      // silent:true로 호출해 강제 로그아웃 없이 오류 메시지만 화면에 표시합니다.
+      await API.post("/master/bus-system", { enabled, note, password }, { silent: true });
       showToast(t("save"));
       this.renderDeveloper();
     } catch (err) {
@@ -1295,7 +1297,8 @@ const AdminUI = {
     const currentPassword = document.getElementById("devCurrentPasswordInput").value;
     const newPassword = document.getElementById("devNewPasswordInput").value;
     try {
-      await API.post("/master/change-password", { currentPassword, newPassword });
+      // 마찬가지로 현재 비밀번호 불일치(401)는 세션 만료가 아니므로 강제 로그아웃하지 않습니다.
+      await API.post("/master/change-password", { currentPassword, newPassword }, { silent: true });
       showToast(t("devPasswordChanged"));
       document.getElementById("devCurrentPasswordInput").value = "";
       document.getElementById("devNewPasswordInput").value = "";
