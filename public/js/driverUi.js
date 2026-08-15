@@ -1,10 +1,16 @@
 /* 통근버스 기사 모드 화면 로직 */
 
+const DRIVER_TRIP_TYPES = ["commute", "regularLeave", "extendedLeave"];
+
 const DriverUI = {
   currentTab: null,
   date: null,
   weekAnchor: null,
   month: null,
+  todayTrip: "commute",
+  todayData: null,
+  weekTrip: "commute",
+  weekData: null,
 
   init() {
     document.querySelectorAll("#driverTabs button").forEach((b) => {
@@ -38,6 +44,7 @@ const DriverUI = {
     try {
       this.date = date || this.date || todayStr();
       const data = await API.get(`/bus-driver/today?date=${this.date}`);
+      this.todayData = data;
       this.renderToday(data);
     } catch (err) {
       container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
@@ -46,7 +53,6 @@ const DriverUI = {
 
   renderToday(data) {
     const container = document.getElementById("driverMainView");
-    const myVehicle = data.myVehicle;
     container.innerHTML = `
       <div class="card">
         <h2 style="margin-top:0;">${t("driverPanel")}</h2>
@@ -55,40 +61,65 @@ const DriverUI = {
           <input type="date" id="drvDate" value="${data.date}">
         </div>
       </div>
-      ${myVehicle ? `
-        <div class="card">
-          <h3>${t("driverMyVehicle")}: ${escapeHtml(myVehicle.routeName)} ${escapeHtml(myVehicle.name)}</h3>
-          ${myVehicle.trips.map((tp) => this.renderMyTripCard(myVehicle.vehicleId, tp)).join("")}
-        </div>
-      ` : `<div class="card"><p>${t("driverNoVehicle")}</p></div>`}
+      <div class="tabs" id="drvTodayTripTabs">
+        ${DRIVER_TRIP_TYPES.map((tt) => `<button data-today-trip-tab="${tt}" class="${tt === this.todayTrip ? "active" : ""}">${t(`busTrip_${tt}`)}</button>`).join("")}
+      </div>
+      <div id="drvMyVehicleCard"></div>
       <div class="card">
         <h3>${t("driverAllVehicles")}</h3>
         <p class="deadline-note">${t("driverAllVehiclesHelp")}</p>
-        ${data.vehicles.map((v) => `
-          <h4 class="${v.isMine ? "today" : ""}" style="margin-bottom:4px;">${escapeHtml(v.routeName)} ${escapeHtml(v.name)}${v.isMine ? ` (${t("driverMyVehicle")})` : ""}</h4>
-          <table class="data-table">
-            <thead><tr><th>${t("busTripLabel")}</th><th>${t("busOperationStatusLabel")}</th><th>${t("driverAppliedHeadcount")}</th><th>${t("busRidersLabel")}</th></tr></thead>
-            <tbody>
-              ${v.trips.map((tp) => `
-                <tr>
-                  <td>${this.tripLabel(tp.tripType)}</td>
-                  <td>${tp.enabled ? t("busOperating") : t("busNotOperating")}</td>
-                  <td>${tp.enabled ? `${tp.appliedHeadcount}${t("headcountUnit")}` : "-"}</td>
-                  <td>${tp.enabled ? (tp.riders.map((r) => escapeHtml(`${r.department ? r.department + " " : ""}${r.employeeName}`)).join(", ") || t("noData")) : "-"}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        `).join("")}
+        <table class="data-table" id="drvAllVehiclesTable"></table>
       </div>
     `;
     document.getElementById("drvDate").addEventListener("change", (e) => this.loadToday(e.target.value));
-    if (myVehicle) {
-      myVehicle.trips.forEach((tp) => {
-        const form = document.getElementById(`drvLogForm_${tp.tripType}`);
-        if (form) form.addEventListener("submit", (e) => this.onSubmitLog(e, myVehicle.vehicleId, tp.tripType));
+    document.querySelectorAll("#drvTodayTripTabs button").forEach((b) => {
+      b.addEventListener("click", () => {
+        this.todayTrip = b.dataset.todayTripTab;
+        this.renderTodayContent();
       });
+    });
+    this.renderTodayContent();
+  },
+
+  // 탭(출근/정시퇴근/연장퇴근) 전환 시에는 이미 받아온 데이터를 그대로 다시 그리기만 합니다.
+  renderTodayContent() {
+    if (!this.todayData) return;
+    document.querySelectorAll("#drvTodayTripTabs button").forEach((b) => b.classList.toggle("active", b.dataset.todayTripTab === this.todayTrip));
+    const tripType = this.todayTrip;
+    const myVehicle = this.todayData.myVehicle;
+
+    const myCardHolder = document.getElementById("drvMyVehicleCard");
+    if (myVehicle) {
+      const tp = myVehicle.trips.find((t2) => t2.tripType === tripType);
+      myCardHolder.innerHTML = `
+        <div class="card">
+          <h3>${t("driverMyVehicle")}: ${escapeHtml(myVehicle.routeName)} ${escapeHtml(myVehicle.name)}</h3>
+          ${this.renderMyTripCard(myVehicle.vehicleId, tp)}
+        </div>
+      `;
+      const form = document.getElementById(`drvLogForm_${tp.tripType}`);
+      if (form) form.addEventListener("submit", (e) => this.onSubmitLog(e, myVehicle.vehicleId, tp.tripType));
+    } else {
+      myCardHolder.innerHTML = `<div class="card"><p>${t("driverNoVehicle")}</p></div>`;
     }
+
+    const table = document.getElementById("drvAllVehiclesTable");
+    table.innerHTML = `
+      <thead><tr><th>${t("busVehicleLabel")}</th><th>${t("busOperationStatusLabel")}</th><th>${t("driverAppliedHeadcount")}</th><th>${t("busRidersLabel")}</th></tr></thead>
+      <tbody>
+        ${this.todayData.vehicles.map((v) => {
+          const tp = v.trips.find((t2) => t2.tripType === tripType);
+          return `
+            <tr class="${v.isMine ? "today" : ""}">
+              <td>${escapeHtml(v.routeName)} ${escapeHtml(v.name)}${v.isMine ? ` (${t("driverMyVehicle")})` : ""}</td>
+              <td>${tp.enabled ? t("busOperating") : t("busNotOperating")}</td>
+              <td>${tp.enabled ? `${tp.appliedHeadcount}${t("headcountUnit")}` : "-"}</td>
+              <td>${tp.enabled ? (tp.riders.map((r) => escapeHtml(`${r.department ? r.department + " " : ""}${r.employeeName}`)).join(", ") || t("noData")) : "-"}</td>
+            </tr>
+          `;
+        }).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`}
+      </tbody>
+    `;
   },
 
   renderMyTripCard(vehicleId, tp) {
@@ -142,6 +173,7 @@ const DriverUI = {
       const anchor = anchorDate || this.weekAnchor || todayStr();
       const data = await API.get(`/bus-driver/week-operation?date=${anchor}`);
       this.weekAnchor = anchor;
+      this.weekData = data;
       this.renderWeek(data);
     } catch (err) {
       container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
@@ -157,7 +189,6 @@ const DriverUI = {
   renderWeek(data) {
     const container = document.getElementById("driverWeekView");
     const weekLabel = data.week && data.week.length ? `${data.week[0]} ~ ${data.week[6]}` : "-";
-    const vehicleNames = data.days[0] ? data.days[0].vehicles.map((v) => `${v.routeName} ${v.name}`) : [];
     container.innerHTML = `
       <div class="card">
         <h2 style="margin-top:0;">${t("driverWeekOperationTab")}</h2>
@@ -166,24 +197,46 @@ const DriverUI = {
           <div class="label">${weekLabel}</div>
           <button class="secondary" id="drvNextWeekBtn">${t("nextWeek")}</button>
         </div>
-        <table class="data-table">
-          <thead>
-            <tr><th rowspan="2">${t("date")}</th>${data.days[0] ? data.days[0].vehicles.map((v) => `<th colspan="3">${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</th>`).join("") : ""}</tr>
-            <tr>${data.days[0] ? data.days[0].vehicles.map(() => `<th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th>`).join("") : ""}</tr>
-          </thead>
-          <tbody>
-            ${data.days.map((day) => `
-              <tr>
-                <td>${day.date}</td>
-                ${day.vehicles.map((v) => v.trips.map((tp) => `<td>${tp.enabled ? t("busOperating") : t("busNotOperating")}</td>`).join("")).join("")}
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
       </div>
+      <div class="tabs" id="drvWeekTripTabs">
+        ${DRIVER_TRIP_TYPES.map((tt) => `<button data-week-trip-tab="${tt}" class="${tt === this.weekTrip ? "active" : ""}">${t(`busTrip_${tt}`)}</button>`).join("")}
+      </div>
+      <div class="card" id="drvWeekTripContent"></div>
     `;
     document.getElementById("drvPrevWeekBtn").addEventListener("click", () => this.shiftWeek(-7));
     document.getElementById("drvNextWeekBtn").addEventListener("click", () => this.shiftWeek(7));
+    document.querySelectorAll("#drvWeekTripTabs button").forEach((b) => {
+      b.addEventListener("click", () => {
+        this.weekTrip = b.dataset.weekTripTab;
+        this.renderWeekContent();
+      });
+    });
+    this.renderWeekContent();
+  },
+
+  renderWeekContent() {
+    if (!this.weekData) return;
+    document.querySelectorAll("#drvWeekTripTabs button").forEach((b) => b.classList.toggle("active", b.dataset.weekTripTab === this.weekTrip));
+    const tripType = this.weekTrip;
+    const data = this.weekData;
+    const content = document.getElementById("drvWeekTripContent");
+    const vehicleNames = data.days[0] ? data.days[0].vehicles.map((v) => `${v.routeName} ${v.name}`) : [];
+    content.innerHTML = `
+      <table class="data-table">
+        <thead><tr><th>${t("date")}</th>${vehicleNames.map((n) => `<th>${escapeHtml(n)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${data.days.map((day) => `
+            <tr>
+              <td>${day.date}</td>
+              ${day.vehicles.map((v) => {
+                const tp = v.trips.find((t2) => t2.tripType === tripType);
+                return `<td>${tp && tp.enabled ? t("busOperating") : t("busNotOperating")}</td>`;
+              }).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    `;
   },
 
   /* -------------------- 월별 집계 (읽기 전용) -------------------- */

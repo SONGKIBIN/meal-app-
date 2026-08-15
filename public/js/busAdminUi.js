@@ -1,8 +1,12 @@
 /* 통근 차량 관리(busAdmin 권한) 화면 로직 */
 
+const BUS_ADMIN_TRIP_TYPES = ["commute", "regularLeave", "extendedLeave"];
+
 const BusAdminUI = {
   currentTab: null,
   statusDate: null,
+  statusTrip: "commute",
+  statusData: null,
   dailyDate: null,
   month: null,
   operationDate: null,
@@ -44,68 +48,91 @@ const BusAdminUI = {
     container.innerHTML = `<div class="card">${t("loading")}</div>`;
     try {
       const data = await API.get(`/bus-admin/summary/daily?date=${date}`);
+      this.statusData = data;
       container.innerHTML = `
         <div class="card">
           <div class="toolbar">
             <label>${t("selectDate")}</label>
             <input type="date" id="baStatusDate" value="${date}">
           </div>
-          ${data.vehicles.map((v) => `
-            <h3>${escapeHtml(v.routeName)} - ${escapeHtml(v.name)}</h3>
-            ${v.trips.map((tp) => `
-              <table class="data-table">
-                <thead><tr><th colspan="6">${this.tripLabel(tp.tripType)} (${tp.count}${t("headcountUnit")})</th></tr>
-                <tr><th>${t("department")}</th><th>${t("name")}</th><th>${t("employeeId")}</th><th>${t("busStopLabel")}</th><th>${t("busSourceLabel")}</th><th></th></tr></thead>
-                <tbody>
-                  ${tp.riders.map((r) => `
-                    <tr>
-                      <td>${escapeHtml(r.department)}</td>
-                      <td>${escapeHtml(r.employeeName)}</td>
-                      <td>${escapeHtml(r.employeeId)}</td>
-                      <td>${escapeHtml(r.stop)}${r.headcount > 1 ? ` (${r.headcount}${t("headcountUnit")})` : ""}</td>
-                      <td>${r.source === "default" ? t("busSourceDefault") : t("busSourceExplicit")}</td>
-                      <td><button class="secondary" data-ba-cancel-ride
-                        ${r.rideId ? `data-ride-id="${r.rideId}"` : ""}
-                        data-employee-id="${escapeHtml(r.employeeId)}"
-                        data-date="${date}"
-                        data-trip="${tp.tripType}"
-                        data-vehicle="${v.vehicleId}"
-                      >${t("cancel")}</button></td>
-                    </tr>
-                  `).join("") || `<tr><td colspan="6">${t("noData")}</td></tr>`}
-                </tbody>
-              </table>
-            `).join("")}
-          `).join("") || `<p>${t("noData")}</p>`}
         </div>
+        <div class="tabs" id="baStatusTripTabs">
+          ${BUS_ADMIN_TRIP_TYPES.map((tt) => `<button data-status-trip-tab="${tt}" class="${tt === this.statusTrip ? "active" : ""}">${t(`busTrip_${tt}`)}</button>`).join("")}
+        </div>
+        <div class="card" id="baStatusTripContent"></div>
       `;
       document.getElementById("baStatusDate").addEventListener("change", (e) => {
         this.statusDate = e.target.value;
         this.renderStatus();
       });
-      container.querySelectorAll("[data-ba-cancel-ride]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          if (!confirm(t("confirmCancel"))) return;
-          try {
-            const body = btn.dataset.rideId
-              ? { rideId: btn.dataset.rideId }
-              : {
-                  employeeId: btn.dataset.employeeId,
-                  date: btn.dataset.date,
-                  tripType: btn.dataset.trip,
-                  vehicleId: btn.dataset.vehicle,
-                };
-            await API.del("/bus-admin/ride", body);
-            showToast(t("cancelSuccess"));
-            this.renderStatus();
-          } catch (err) {
-            alert(err.message);
-          }
+      document.querySelectorAll("#baStatusTripTabs button").forEach((b) => {
+        b.addEventListener("click", () => {
+          this.statusTrip = b.dataset.statusTripTab;
+          this.renderStatusContent();
         });
       });
+      this.renderStatusContent();
     } catch (err) {
       container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
     }
+  },
+
+  // 탭(출근/정시퇴근/연장퇴근) 전환 시에는 이미 받아온 데이터를 그대로 다시 그리기만 합니다.
+  renderStatusContent() {
+    if (!this.statusData) return;
+    document.querySelectorAll("#baStatusTripTabs button").forEach((b) => b.classList.toggle("active", b.dataset.statusTripTab === this.statusTrip));
+    const date = this.statusDate;
+    const tripType = this.statusTrip;
+    const content = document.getElementById("baStatusTripContent");
+    content.innerHTML = this.statusData.vehicles.map((v) => {
+      const tp = v.trips.find((t2) => t2.tripType === tripType);
+      if (!tp) return "";
+      return `
+        <h3>${escapeHtml(v.routeName)} - ${escapeHtml(v.name)} (${tp.count}${t("headcountUnit")})</h3>
+        <table class="data-table">
+          <thead><tr><th>${t("department")}</th><th>${t("name")}</th><th>${t("employeeId")}</th><th>${t("busStopLabel")}</th><th>${t("busSourceLabel")}</th><th></th></tr></thead>
+          <tbody>
+            ${tp.riders.map((r) => `
+              <tr>
+                <td>${escapeHtml(r.department)}</td>
+                <td>${escapeHtml(r.employeeName)}</td>
+                <td>${escapeHtml(r.employeeId)}</td>
+                <td>${escapeHtml(r.stop)}${r.headcount > 1 ? ` (${r.headcount}${t("headcountUnit")})` : ""}</td>
+                <td>${r.source === "default" ? t("busSourceDefault") : t("busSourceExplicit")}</td>
+                <td><button class="secondary" data-ba-cancel-ride
+                  ${r.rideId ? `data-ride-id="${r.rideId}"` : ""}
+                  data-employee-id="${escapeHtml(r.employeeId)}"
+                  data-date="${date}"
+                  data-trip="${tp.tripType}"
+                  data-vehicle="${v.vehicleId}"
+                >${t("cancel")}</button></td>
+              </tr>
+            `).join("") || `<tr><td colspan="6">${t("noData")}</td></tr>`}
+          </tbody>
+        </table>
+      `;
+    }).join("") || `<p>${t("noData")}</p>`;
+
+    content.querySelectorAll("[data-ba-cancel-ride]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(t("confirmCancel"))) return;
+        try {
+          const body = btn.dataset.rideId
+            ? { rideId: btn.dataset.rideId }
+            : {
+                employeeId: btn.dataset.employeeId,
+                date: btn.dataset.date,
+                tripType: btn.dataset.trip,
+                vehicleId: btn.dataset.vehicle,
+              };
+          await API.del("/bus-admin/ride", body);
+          showToast(t("cancelSuccess"));
+          this.renderStatus();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
   },
 
   /* -------------------- 일일 집계 (엑셀/인쇄) -------------------- */
@@ -326,7 +353,7 @@ const BusAdminUI = {
             <label>${t("selectDate")}</label>
             <input type="date" id="baOpDate" value="${date}">
           </div>
-          <p class="deadline-note">${t("busOperationHelp")}${data.defaultOn ? t("busDefaultOn") : t("busDefaultOff")}</p>
+          <p class="deadline-note">${t("busOperationHelp")}</p>
           <table class="data-table">
             <thead><tr><th>${t("busVehicleLabel")}</th><th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th></tr></thead>
             <tbody>

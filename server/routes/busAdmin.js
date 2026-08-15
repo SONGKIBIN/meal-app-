@@ -7,7 +7,7 @@ const BusDefaultRide = require("../models/BusDefaultRide");
 const BusOperationDay = require("../models/BusOperationDay");
 const BusDrivingLog = require("../models/BusDrivingLog");
 const { requireAuth, requireBusAdmin, attachVehicleScope } = require("../middleware/auth");
-const { getMonthDates } = require("../utils/dateUtil");
+const { getMonthDates, weekdayOf } = require("../utils/dateUtil");
 const { TRIP_TYPES, resolveOperationMap, isDefaultOperatingDayBulk } = require("../utils/busOperation");
 const { computeRiders } = require("../utils/busRiders");
 
@@ -159,7 +159,7 @@ router.delete("/vehicles/:id", async (req, res) => {
 });
 
 /* ---------------------------- 날짜별 운행 여부 지정 ---------------------------- */
-// 평일은 기본 운행, 특근일/대체휴무일/토요일/일요일 등은 여기서 켜줘야만 운행됩니다 (평일도 명시적으로 끌 수 있음).
+// 모든 날짜는 기본적으로 운행하는 것으로 처리되며, 여기서 특정 날짜/차량/운행구분만 명시적으로 꺼서(취소해서) 예외로 관리합니다.
 
 router.get("/operation", async (req, res) => {
   try {
@@ -203,7 +203,7 @@ router.post("/operation", async (req, res) => {
   }
 });
 
-// 지정을 지우고 기본값(평일 운행/휴일 미운행)으로 되돌립니다.
+// 지정을 지우고 기본값(운행함)으로 되돌립니다.
 router.delete("/operation", async (req, res) => {
   try {
     const { date, tripType, vehicleId } = req.body;
@@ -239,7 +239,9 @@ router.delete("/ride", async (req, res) => {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
     const isDefaultDay = (await isDefaultOperatingDayBulk([date]))[date];
-    const def = isDefaultDay ? await BusDefaultRide.findOne({ employeeId, tripType }).lean() : null;
+    const def = isDefaultDay
+      ? await BusDefaultRide.findOne({ employeeId, tripType, dayOfWeek: weekdayOf(date) }).lean()
+      : null;
     if (!def) return res.status(404).json({ error: "탑승 내역을 찾을 수 없습니다." });
     if (!inScope(req, def.vehicleId)) return res.status(403).json({ error: "담당 차량이 아닙니다." });
     if (vehicleId && String(def.vehicleId) !== String(vehicleId)) {
@@ -282,6 +284,7 @@ async function dailyRiders(req, date) {
   const vehicles = await scopedVehicles(req, { active: true });
   const vehicleIds = vehicles.map((v) => String(v._id));
   const isDefaultDay = await isDefaultOperatingDayBulk([date]).then((m) => m[date]);
+  const dow = weekdayOf(date);
   const { map: opMap } = await resolveOperationMap(date, vehicleIds);
   const allDefaults = vehicleIds.length ? await BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean() : [];
   // 명시 신청/취소 기록은 담당 차량으로 미리 필터링하지 않고 그날 전체를 조회합니다. 직원이 담당 범위
@@ -299,7 +302,7 @@ async function dailyRiders(req, date) {
       name: v.name,
       routeName: v.routeId ? v.routeId.name : "",
       trips: TRIP_TYPES.map((tripType) => {
-        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
         const riders = sortRiders(ridersByVehicle[vId] || []);
         const count = riders.reduce((sum, r) => sum + (r.headcount || 1), 0);
         return { tripType, label: TRIP_LABEL[tripType], count, riders };
@@ -336,9 +339,10 @@ async function monthlyDailyTotals(req, dates) {
     byDate[date] = { date, commute: 0, regularLeave: 0, extendedLeave: 0 };
     const { map: opMap } = await resolveOperationMap(date, vehicleIds);
     const isDefaultDay = !!defaultDayMap[date];
+    const dow = weekdayOf(date);
     const explicitForDate = monthExplicit.filter((r) => r.date === date);
     for (const tripType of TRIP_TYPES) {
-      const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+      const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
       let sum = 0;
       for (const vId of vehicleIds) sum += (ridersByVehicle[vId] || []).reduce((s, r) => s + (r.headcount || 1), 0);
       byDate[date][tripType] = sum;

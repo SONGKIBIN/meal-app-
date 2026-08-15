@@ -6,7 +6,7 @@ const BusRide = require("../models/BusRide");
 const BusDefaultRide = require("../models/BusDefaultRide");
 const Holiday = require("../models/Holiday");
 const { requireAuth } = require("../middleware/auth");
-const { getWeekDates, fixedHolidayLabel, isWeekendDate } = require("../utils/dateUtil");
+const { getWeekDates, fixedHolidayLabel, isWeekendDate, weekdayOf } = require("../utils/dateUtil");
 const { TRIP_TYPES, resolveOperationMap, isDefaultOperatingDayBulk, isDefaultOperatingDay } = require("../utils/busOperation");
 const { computeRiders } = require("../utils/busRiders");
 
@@ -45,47 +45,58 @@ router.get("/routes", async (req, res) => {
   }
 });
 
-// 내 기본(평소) 탑승 차량 등록 현황 조회. 트립타입(출근/정시퇴근/연장퇴근)별로 최대 1개씩 등록할 수 있습니다.
+// 기본 등록은 월~금(1~5)에만 의미가 있습니다 (주말/공휴일에는 기본 등록이 자동 적용되지 않으므로).
+const DEFAULT_WEEKDAYS = [1, 2, 3, 4, 5];
+
+// 내 기본(평소) 탑승 차량 등록 현황 조회. 트립타입(출근/정시퇴근/연장퇴근) x 요일(월~금)별로
+// 각각 등록할 수 있습니다 (예: 월/수/금은 평택버스, 화/목은 안성버스).
 router.get("/default", async (req, res) => {
   try {
     const visible = await computeVisible(req);
     if (!visible) return res.status(403).json({ error: "통근버스 기능이 아직 공개되지 않았습니다." });
     const defaults = await BusDefaultRide.find({ employeeId: req.user.employeeId }).lean();
-    const byTrip = new Map(defaults.map((d) => [d.tripType, d]));
-    res.json({
-      defaults: TRIP_TYPES.map((tripType) => {
-        const d = byTrip.get(tripType);
-        return d
-          ? {
-              tripType,
-              vehicleId: String(d.vehicleId),
-              vehicleName: d.vehicleName,
-              routeName: d.routeName,
-              stop: d.stop,
-              headcount: d.headcount,
-            }
-          : { tripType, vehicleId: null };
-      }),
-    });
+    const byKey = new Map(defaults.map((d) => [`${d.tripType}_${d.dayOfWeek}`, d]));
+    const result = [];
+    for (const tripType of TRIP_TYPES) {
+      for (const dayOfWeek of DEFAULT_WEEKDAYS) {
+        const d = byKey.get(`${tripType}_${dayOfWeek}`);
+        result.push(
+          d
+            ? {
+                tripType,
+                dayOfWeek,
+                vehicleId: String(d.vehicleId),
+                vehicleName: d.vehicleName,
+                routeName: d.routeName,
+                stop: d.stop,
+                headcount: d.headcount,
+              }
+            : { tripType, dayOfWeek, vehicleId: null }
+        );
+      }
+    }
+    res.json({ defaults: result });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "서버 오류가 발생했습니다." });
   }
 });
 
-// 내 기본 탑승 차량 등록/수정/해지. vehicleId를 비워서 보내면 해당 트립타입의 기본 등록을 해지합니다.
+// 내 기본 탑승 차량 등록/수정/해지 (트립타입 x 요일 단위). vehicleId를 비워서 보내면 그 요일의 기본
+// 등록을 해지합니다.
 router.post("/default", async (req, res) => {
   try {
     const visible = await computeVisible(req);
     if (!visible) return res.status(403).json({ error: "통근버스 기능이 아직 공개되지 않았습니다." });
 
     const { tripType, vehicleId, stop } = req.body;
-    if (!TRIP_TYPES.includes(tripType)) {
+    const dayOfWeek = parseInt(req.body.dayOfWeek, 10);
+    if (!TRIP_TYPES.includes(tripType) || !DEFAULT_WEEKDAYS.includes(dayOfWeek)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
 
     if (!vehicleId) {
-      await BusDefaultRide.deleteOne({ employeeId: req.user.employeeId, tripType });
+      await BusDefaultRide.deleteOne({ employeeId: req.user.employeeId, tripType, dayOfWeek });
       return res.json({ ok: true, removed: true });
     }
 
@@ -109,7 +120,7 @@ router.post("/default", async (req, res) => {
     }
 
     await BusDefaultRide.findOneAndUpdate(
-      { employeeId: req.user.employeeId, tripType },
+      { employeeId: req.user.employeeId, tripType, dayOfWeek },
       {
         $set: {
           employeeName: req.user.name,
@@ -161,9 +172,8 @@ router.get("/week", async (req, res) => {
     const defaultDayMap = await isDefaultOperatingDayBulk(week);
 
     const allDefaults = await BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean();
-    const myDefaultMap = new Map(
-      allDefaults.filter((d) => d.employeeId === req.user.employeeId).map((d) => [d.tripType, d])
-    );
+    const myDefaults = allDefaults.filter((d) => d.employeeId === req.user.employeeId);
+    const myDefaultMap = new Map(myDefaults.map((d) => [`${d.tripType}_${d.dayOfWeek}`, d]));
 
     const weekExplicit = await BusRide.find({ date: { $in: week }, vehicleId: { $in: vehicleIds } }).lean();
 
@@ -175,14 +185,15 @@ router.get("/week", async (req, res) => {
       const holidayLabel = customLabel !== undefined ? customLabel : fixedLabel;
       const dayType = customLabel !== undefined || fixedLabel ? "holiday" : isWeekendDate(date) ? "weekend" : "weekday";
       const isDefaultDay = !!defaultDayMap[date];
+      const dow = weekdayOf(date);
       const explicitForDate = weekExplicit.filter((r) => r.date === date);
       const myExplicitRow = explicitForDate.find((r) => r.employeeId === req.user.employeeId);
 
       const tripInfo = {};
       for (const tripType of TRIP_TYPES) {
-        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
         const myExplicit = explicitForDate.find((r) => r.tripType === tripType && r.employeeId === req.user.employeeId);
-        const myDefault = myDefaultMap.get(tripType);
+        const myDefault = myDefaultMap.get(`${tripType}_${dow}`);
 
         let my = { riding: false, via: null };
         if (myExplicit && myExplicit.status === "applied") {
@@ -231,23 +242,31 @@ router.get("/week", async (req, res) => {
       days.push({ date, dayType, holidayLabel: holidayLabel || "", ...tripInfo });
     }
 
+    const myDefaultsGrid = [];
+    for (const tripType of TRIP_TYPES) {
+      for (const dayOfWeek of DEFAULT_WEEKDAYS) {
+        const d = myDefaultMap.get(`${tripType}_${dayOfWeek}`);
+        myDefaultsGrid.push(
+          d
+            ? {
+                tripType,
+                dayOfWeek,
+                vehicleId: String(d.vehicleId),
+                vehicleName: d.vehicleName,
+                routeName: d.routeName,
+                stop: d.stop,
+                headcount: d.headcount,
+              }
+            : { tripType, dayOfWeek, vehicleId: null }
+        );
+      }
+    }
+
     res.json({
       week,
       days,
       vehicles: vehicleList,
-      myDefaults: TRIP_TYPES.map((tripType) => {
-        const d = myDefaultMap.get(tripType);
-        return d
-          ? {
-              tripType,
-              vehicleId: String(d.vehicleId),
-              vehicleName: d.vehicleName,
-              routeName: d.routeName,
-              stop: d.stop,
-              headcount: d.headcount,
-            }
-          : { tripType, vehicleId: null };
-      }),
+      myDefaults: myDefaultsGrid,
     });
   } catch (err) {
     console.error(err);
@@ -331,7 +350,9 @@ router.delete("/ride", async (req, res) => {
       return res.json({ ok: true });
     }
     const isDefaultDay = await isDefaultOperatingDay(date);
-    const def = isDefaultDay ? await BusDefaultRide.findOne({ employeeId: req.user.employeeId, tripType }) : null;
+    const def = isDefaultDay
+      ? await BusDefaultRide.findOne({ employeeId: req.user.employeeId, tripType, dayOfWeek: weekdayOf(date) })
+      : null;
     if (!def) {
       return res.status(400).json({ error: "취소할 신청 내역이 없습니다." });
     }

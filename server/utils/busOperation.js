@@ -1,13 +1,20 @@
 // 통근버스 운행 여부 계산 유틸.
-// 평일(월~금)이고 공휴일이 아니면 기본적으로 운행하는 것으로 간주하고, 그 외(토/일/공휴일)에는
-// 관리자가 BusOperationDay로 명시적으로 켜주지 않는 한 운행하지 않는 것으로 간주합니다.
-// 평일이라도 관리자가 명시적으로 지정해두었다면(예: 회사 휴무) 그 지정값이 항상 우선합니다.
+// 이 파일은 서로 다른 두 가지 개념을 다룹니다 — 헷갈리지 않도록 구분해서 사용하세요.
+//
+// 1) "차량 운행 여부"(resolveOperationMap): 그 차량이 그날 실제로 다니는지 여부입니다. 모든 날짜는
+//    기본적으로 운행하는 것으로 간주하고, 관리자가 [운행일 지정] 화면에서 특정 날짜/차량/운행구분만
+//    명시적으로 꺼서(취소해서) 예외로 관리합니다(예: 회사 휴무일, 차량 정비일).
+// 2) "기본 등록 자동 탑승일 여부"(isDefaultOperatingDay/Bulk): 직원이 등록해둔 "내가 타는 차"가
+//    별도 신청 없이 자동으로 탑승자 명단에 포함되는 날인지 여부입니다. 평일(월~금)이고 공휴일이
+//    아닌 날에만 자동 적용되며, 주말/공휴일에는 차량이 운행하더라도 직원이 그때그때 명시적으로
+//    신청해야 합니다.
 const Holiday = require("../models/Holiday");
 const BusOperationDay = require("../models/BusOperationDay");
 const { isWeekendDate, fixedHolidayLabel } = require("./dateUtil");
 
 const TRIP_TYPES = ["commute", "regularLeave", "extendedLeave"];
 
+// "기본 등록"이 별도 신청 없이 자동으로 탑승자 명단에 포함되는 날인지 여부 (평일 + 공휴일 아님).
 async function isDefaultOperatingDay(date) {
   if (isWeekendDate(date)) return false;
   if (fixedHolidayLabel(date)) return false;
@@ -16,7 +23,7 @@ async function isDefaultOperatingDay(date) {
   return true;
 }
 
-// 여러 날짜에 대해 한 번에 기본 운행 여부를 계산합니다 (주간 뷰 등에서 N+1 쿼리를 피하기 위함).
+// 여러 날짜에 대해 한 번에 계산합니다 (주간 뷰 등에서 N+1 쿼리를 피하기 위함).
 async function isDefaultOperatingDayBulk(dates) {
   const customHolidays = await Holiday.find({ date: { $in: dates } }).lean();
   const customSet = new Set(customHolidays.map((h) => h.date));
@@ -27,9 +34,11 @@ async function isDefaultOperatingDayBulk(dates) {
   return map;
 }
 
-// 특정 날짜의 tripType x vehicle 조합별 실제 운행 여부를 계산합니다 (관리자 지정 > 기본값 순).
+// 특정 날짜의 tripType x vehicle 조합별 실제 차량 운행 여부를 계산합니다.
+// 평일/주말/공휴일 구분 없이 모든 날짜가 기본적으로 "운행"이며, 관리자가 [운행일 지정]에서
+// 명시적으로 끈(취소한) 날짜/차량/운행구분만 예외로 운행하지 않습니다(관리자 지정이 항상 최우선).
 async function resolveOperationMap(date, vehicleIds, tripTypes = TRIP_TYPES) {
-  const defaultOn = await isDefaultOperatingDay(date);
+  const defaultOn = true;
   const overrides = vehicleIds.length
     ? await BusOperationDay.find({ date, vehicleId: { $in: vehicleIds }, tripType: { $in: tripTypes } }).lean()
     : [];

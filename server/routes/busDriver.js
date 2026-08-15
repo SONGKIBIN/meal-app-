@@ -4,7 +4,7 @@ const BusRide = require("../models/BusRide");
 const BusDefaultRide = require("../models/BusDefaultRide");
 const BusDrivingLog = require("../models/BusDrivingLog");
 const { requireAuth, requireBusDriver } = require("../middleware/auth");
-const { getWeekDates, getMonthDates } = require("../utils/dateUtil");
+const { getWeekDates, getMonthDates, weekdayOf } = require("../utils/dateUtil");
 const { TRIP_TYPES, resolveOperationMap, isDefaultOperatingDayBulk } = require("../utils/busOperation");
 const { computeRiders } = require("../utils/busRiders");
 
@@ -24,6 +24,7 @@ router.get("/today", async (req, res) => {
 
     const { map: opMap } = await resolveOperationMap(date, vehicleIds);
     const isDefaultDay = (await isDefaultOperatingDayBulk([date]))[date];
+    const dow = weekdayOf(date);
     const allDefaults = vehicleIds.length ? await BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean() : [];
     const explicitForDate = vehicleIds.length ? await BusRide.find({ date, vehicleId: { $in: vehicleIds } }).lean() : [];
     const logs = await BusDrivingLog.find({ date, vehicleId: { $in: vehicleIds } }).lean();
@@ -37,7 +38,7 @@ router.get("/today", async (req, res) => {
         routeName: v.routeId ? v.routeId.name : "",
         isMine: v.driverEmployeeId === req.user.employeeId,
         trips: TRIP_TYPES.map((tripType) => {
-          const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+          const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
           const riders = (ridersByVehicle[vId] || []).slice().sort((a, b) => (a.department || "").localeCompare(b.department || "") || (a.employeeName || "").localeCompare(b.employeeName || ""));
           const log = logMap.get(`${vId}_${tripType}`);
           return {
@@ -123,9 +124,10 @@ router.get("/summary/monthly", async (req, res) => {
       const date = dates[i];
       const { map: opMap } = await resolveOperationMap(date, vehicleIds);
       const isDefaultDay = !!defaultDayMap[date];
+      const dow = weekdayOf(date);
       const explicitForDate = monthExplicit.filter((r) => r.date === date);
       for (const tripType of TRIP_TYPES) {
-        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+        const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, dow, allDefaults, explicitForDate);
         for (const vId of vehicleIds) {
           perVehicleDaily[vId][i][tripType] = (ridersByVehicle[vId] || []).reduce((sum, r) => sum + (r.headcount || 1), 0);
         }
