@@ -1236,9 +1236,10 @@ const AdminUI = {
           <p><b>${t("devBusSystemStatus")}:</b> ${busSystem.enabled ? t("devBusSystemOn") : t("devBusSystemOff")}</p>
           <div class="field"><label>${t("devBusSystemNote")}</label><input id="devBusNoteInput" value="${escapeHtml(busSystem.note || "")}" placeholder="${t("devBusSystemNotePlaceholder")}"></div>
           <div class="field"><label>${t("masterPassword")}</label><input type="password" id="devBusPasswordInput"></div>
+          <div id="devBusMsg" class="deadline-note" style="color:var(--danger); min-height:1.2em;"></div>
           <div class="toolbar">
-            <button id="devBusEnableBtn">${t("devBusSystemEnable")}</button>
-            <button class="secondary" id="devBusDisableBtn">${t("devBusSystemDisable")}</button>
+            <button id="devBusEnableBtn" class="${busSystem.enabled ? "" : "secondary"}">${t("devBusSystemEnable")}</button>
+            <button id="devBusDisableBtn" class="${busSystem.enabled ? "secondary" : ""}">${t("devBusSystemDisable")}</button>
           </div>
         </div>
         <div class="card">
@@ -1273,8 +1274,11 @@ const AdminUI = {
   async saveBusSystem(enabled) {
     const note = document.getElementById("devBusNoteInput").value;
     const password = document.getElementById("devBusPasswordInput").value;
+    const msgEl = document.getElementById("devBusMsg");
+    if (msgEl) msgEl.textContent = "";
     if (!password) {
-      alert(t("devPasswordRequired"));
+      if (msgEl) msgEl.textContent = t("devPasswordRequired");
+      document.getElementById("devBusPasswordInput").focus();
       return;
     }
     try {
@@ -1282,7 +1286,8 @@ const AdminUI = {
       showToast(t("save"));
       this.renderDeveloper();
     } catch (err) {
-      alert(err.message);
+      if (msgEl) msgEl.textContent = err.message;
+      else alert(err.message);
     }
   },
 
