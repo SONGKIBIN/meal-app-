@@ -1259,11 +1259,12 @@ const AdminUI = {
       document.getElementById("devBusEnableBtn").addEventListener("click", () => this.saveBusSystem(true));
       document.getElementById("devBusDisableBtn").addEventListener("click", () => this.saveBusSystem(false));
       document.getElementById("devChangePasswordBtn").addEventListener("click", () => this.changeMasterPassword());
+      this.devVehiclesCache = vehicles.vehicles || [];
       document.getElementById("devEmpSearchInput").addEventListener("input", (e) => {
         this.devSearchTerm = e.target.value;
-        this.loadDevEmployees(vehicles.vehicles || []);
+        this.loadDevEmployees(this.devVehiclesCache);
       });
-      await this.loadDevEmployees(vehicles.vehicles || []);
+      await this.loadDevEmployees(this.devVehiclesCache);
     } catch (err) {
       container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
     }
@@ -1307,6 +1308,7 @@ const AdminUI = {
       this.devEmployeesCache = data.employees;
       const vehicleOptions = (vid) => `<option value="">-</option>` + vehicles.map((v) => `<option value="${v._id}" ${vid === String(v._id) ? "selected" : ""}>${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</option>`).join("");
       el.innerHTML = `
+        ${!vehicles.length ? `<p class="deadline-note">${t("devNoVehiclesYet")}</p>` : ""}
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("devBusAdminCol")}</th><th>${t("devBusDriverCol")}</th><th>${t("devDriverVehicleCol")}</th><th></th></tr></thead>
           <tbody>
@@ -1317,7 +1319,7 @@ const AdminUI = {
                 <td>${escapeHtml(e.department)}</td>
                 <td><input type="checkbox" class="dev-busadmin-cb" ${e.busAdmin ? "checked" : ""}></td>
                 <td><input type="checkbox" class="dev-busdriver-cb" ${e.busDriver ? "checked" : ""}></td>
-                <td><select class="dev-vehicle-select">${vehicleOptions(e.driverVehicleId)}</select></td>
+                <td><select class="dev-vehicle-select" ${!vehicles.length ? "disabled" : ""}>${vehicleOptions(e.driverVehicleId)}</select></td>
                 <td><button class="secondary" data-dev-save="${e.employeeId}">${t("save")}</button></td>
               </tr>
             `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`}
@@ -1327,6 +1329,14 @@ const AdminUI = {
       el.querySelectorAll("[data-dev-save]").forEach((btn) => {
         btn.addEventListener("click", () => this.saveDevPermissions(btn.dataset.devSave));
       });
+      // 배정 차량을 고르면 "기사" 체크박스도 함께 켜줍니다 (차량 선택 없이 저장되면 서버에서 배정이
+      // 자동으로 해제되므로, 체크박스를 따로 켜는 걸 잊어도 선택이 사라지지 않도록 방지합니다).
+      el.querySelectorAll(".dev-vehicle-select").forEach((sel) => {
+        sel.addEventListener("change", () => {
+          const row = sel.closest("tr");
+          if (sel.value) row.querySelector(".dev-busdriver-cb").checked = true;
+        });
+      });
     } catch (err) {
       el.textContent = err.message;
     }
@@ -1335,11 +1345,14 @@ const AdminUI = {
   async saveDevPermissions(employeeId) {
     const row = document.querySelector(`[data-emp-row="${employeeId}"]`);
     const busAdmin = row.querySelector(".dev-busadmin-cb").checked;
-    const busDriver = row.querySelector(".dev-busdriver-cb").checked;
     const driverVehicleId = row.querySelector(".dev-vehicle-select").value;
+    // 차량이 선택되어 있으면 "기사" 체크박스를 깜빡 잊고 켜지 않았어도 기사 권한으로 저장합니다.
+    // (체크박스가 꺼진 채로 저장되면 서버가 배정 차량을 자동으로 비우기 때문입니다.)
+    const busDriver = row.querySelector(".dev-busdriver-cb").checked || !!driverVehicleId;
     try {
       await API.put(`/master/employees/${employeeId}/bus-permissions`, { busAdmin, busDriver, driverVehicleId });
       showToast(t("save"));
+      this.loadDevEmployees(this.devVehiclesCache);
     } catch (err) {
       alert(err.message);
     }
