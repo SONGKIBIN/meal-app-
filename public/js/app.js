@@ -92,9 +92,17 @@ function showAppView() {
   // 다른 직원에게 나중에 관리자 권한을 부여한 경우에는 예전처럼 관리자 화면과 식사 신청 화면을 모두 사용할 수 있습니다.
   // 부서 운영자(role=manager)도 일반 직원과 동일하게 "내 식사 신청" 화면을 함께 사용할 수 있고, 추가로 운영자 화면을 봅니다.
   const isMasterAdmin = !!user.isMasterAdmin;
+  const isBusAdmin = !!user.busAdmin || isMasterAdmin;
+  const isBusDriver = !!user.busDriver || isMasterAdmin;
   document.getElementById("tabAdmin").classList.toggle("hidden", !isAdmin);
   document.getElementById("tabManager").classList.toggle("hidden", !isManager);
   document.getElementById("tabMy").classList.toggle("hidden", isMasterAdmin);
+  document.getElementById("tabBusAdmin").classList.toggle("hidden", !isBusAdmin);
+  document.getElementById("tabDriver").classList.toggle("hidden", !isBusDriver);
+  // 통근버스 "내 승차 신청" 탭은 마스터/통근차량 관리자/기사는 항상 보이고, 그 외 직원은 master가
+  // 기능을 공개(busSystemEnabled)했을 때만 보입니다 - 서버에 물어봐야 하므로 비동기로 갱신합니다.
+  document.getElementById("tabBus").classList.toggle("hidden", !(isBusAdmin || isBusDriver));
+  checkBusVisibility();
   if (!isMasterAdmin && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window) {
     document.getElementById("notifyBtn").classList.remove("hidden");
   }
@@ -103,9 +111,20 @@ function showAppView() {
   checkAnnouncement();
 }
 
+async function checkBusVisibility() {
+  try {
+    const data = await API.get("/bus/status");
+    document.getElementById("tabBus").classList.toggle("hidden", !data.visible);
+  } catch (err) {
+    // 통근버스 기능이 아직 없거나 오류가 나면 조용히 숨겨둡니다.
+  }
+}
+
 async function doLogin() {
   const employeeId = document.getElementById("inputEmployeeId").value.trim();
   const name = document.getElementById("inputName").value.trim();
+  const passwordField = document.getElementById("passwordField");
+  const password = document.getElementById("inputPassword").value;
   const errEl = document.getElementById("loginError");
   errEl.textContent = "";
   if (!employeeId || !name) {
@@ -113,12 +132,22 @@ async function doLogin() {
     return;
   }
   try {
-    const data = await API.request("POST", "/auth/login", { employeeId, name }, { silent: true });
+    const data = await API.request("POST", "/auth/login", { employeeId, name, password }, { silent: true });
     API.setToken(data.token);
     API.setUser(data.user);
     saveLastLogin(employeeId, name);
+    passwordField.classList.add("hidden");
+    document.getElementById("inputPassword").value = "";
+    if (data.user.needsPasswordSetup) {
+      showToast(t("masterNeedsPasswordSetup"));
+    }
     showAppView();
   } catch (err) {
+    if (err.code === "PASSWORD_REQUIRED") {
+      // 마스터 관리자 계정은 비밀번호가 추가로 필요합니다. 입력칸을 보여주고 포커스를 옮겨줍니다.
+      passwordField.classList.remove("hidden");
+      document.getElementById("inputPassword").focus();
+    }
     errEl.textContent = err.message;
   }
 }
@@ -137,12 +166,21 @@ function switchMainTab(tabName) {
   document.getElementById("myView").classList.toggle("hidden", tabName !== "my");
   document.getElementById("adminView").classList.toggle("hidden", tabName !== "admin");
   document.getElementById("managerView").classList.toggle("hidden", tabName !== "manager");
+  document.getElementById("busView").classList.toggle("hidden", tabName !== "bus");
+  document.getElementById("busAdminView").classList.toggle("hidden", tabName !== "busAdmin");
+  document.getElementById("driverView").classList.toggle("hidden", tabName !== "driver");
   if (tabName === "my") {
     loadWeek(currentWeekAnchor);
   } else if (tabName === "admin") {
     AdminUI.switchTab(AdminUI.currentTab || "status");
   } else if (tabName === "manager") {
     ManagerUI.switchTab(ManagerUI.currentTab || "status");
+  } else if (tabName === "bus") {
+    BusUI.load();
+  } else if (tabName === "busAdmin") {
+    BusAdminUI.switchTab(BusAdminUI.currentTab || "status");
+  } else if (tabName === "driver") {
+    DriverUI.load();
   }
 }
 
@@ -814,6 +852,7 @@ function init() {
   document.getElementById("loginBtn").addEventListener("click", doLogin);
   document.getElementById("inputName").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
   document.getElementById("inputEmployeeId").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  document.getElementById("inputPassword").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
   document.getElementById("logoutBtn").addEventListener("click", doLogout);
   document.getElementById("prevWeekBtn").addEventListener("click", () => shiftWeek(-7));
   document.getElementById("nextWeekBtn").addEventListener("click", () => shiftWeek(7));

@@ -5,17 +5,26 @@ const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const PushSubscription = require("../models/PushSubscription");
 const NotificationLog = require("../models/NotificationLog");
+const Vehicle = require("../models/Vehicle");
+const BusRide = require("../models/BusRide");
+const BusDrivingLog = require("../models/BusDrivingLog");
 const { cleanupOldMenus } = require("./menu");
+const { sendMail } = require("../utils/mailer");
 const {
   getKSTParts,
+  addDays,
   LUNCH_DEADLINE_HOUR,
   LUNCH_DEADLINE_MINUTE,
   DINNER_DEADLINE_HOUR,
   DINNER_DEADLINE_MINUTE,
 } = require("../utils/dateUtil");
+const { TRIP_TYPES } = require("../utils/busOperation");
 
 const router = express.Router();
 const REMINDER_MINUTES_BEFORE = 30; // 마감 몇 분 전에 임박 알림을 보낼지
+const MASTER_ADMIN_ID = process.env.ADMIN_EMPLOYEE_ID || "admin";
+const TRIP_LABEL = { commute: "출근운행", regularLeave: "정시퇴근운행", extendedLeave: "연장퇴근운행" };
+const BUS_LOG_EMAIL_HOUR = 8; // 통근버스 전일 운행일지를 이메일로 보내는 시각(KST)
 
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
@@ -80,7 +89,107 @@ router.get("/tick", async (req, res) => {
     const today = parts.dateStr;
     const nowMinutes = parts.hour * 60 + parts.minute;
 
-    const results = { menuCleanup: "skip", reminderLunch: "skip", reminderDinner: "skip", dailySummary: "skip" };
+    const results = {
+      menuCleanup: "skip",
+      reminderLunch: "skip",
+      reminderDinner: "skip",
+      dailySummary: "skip",
+      dailySummaryEmail: "skip",
+      busDailyLogEmail: "skip",
+    };
+
+    // 이메일 발송은 웹 푸시(VAPID) 설정 여부와 무관하게 동작해야 하므로, 마감시간은 여기서 먼저 계산해둡니다.
+    const lunchDeadline = await getDeadline("lunch");
+    const dinnerDeadline = await getDeadline("dinner");
+    const lunchDeadlineMinutes = lunchDeadline.hour * 60 + lunchDeadline.minute;
+    const dinnerDeadlineMinutes = dinnerDeadline.hour * 60 + dinnerDeadline.minute;
+    const finalDeadlineMinutes = Math.max(lunchDeadlineMinutes, dinnerDeadlineMinutes);
+
+    // 0-2) 관리자 일일 집계 이메일: 이메일을 등록한 관리자(role=admin)에게 중식/석식 마감시간이 모두 지난 뒤
+    //      최초 1회 오늘자 최종 집계를 이메일로 통보합니다 (웹 푸시와 별개로 동작).
+    if (nowMinutes >= finalDeadlineMinutes) {
+      if (await markSentOnce(today, "dailySummaryEmail")) {
+        try {
+          const admins = await Employee.find({ role: "admin", email: { $nin: ["", null] } }).lean();
+          const emails = admins.map((a) => a.email).filter(Boolean);
+          if (emails.length) {
+            const applied = await Reservation.find({ date: today, status: "applied" }).lean();
+            const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
+            const lunchCount = sumHeadcount(applied.filter((r) => r.mealType === "lunch"));
+            const dinnerCount = sumHeadcount(applied.filter((r) => r.mealType === "dinner"));
+            await sendMail({
+              to: emails,
+              subject: `[식수신청] ${today} 신청 집계`,
+              html: `<p><b>${today}</b> 식사 신청 집계입니다.</p><p>중식 ${lunchCount}명 / 석식 ${dinnerCount}명 신청되었습니다.</p>`,
+            });
+          }
+          results.dailySummaryEmail = "sent";
+        } catch (err) {
+          console.error("[cron] 일일 집계 이메일 처리 중 오류:", err.message);
+          results.dailySummaryEmail = "error";
+        }
+      }
+    }
+
+    // 0-1) 통근버스 전일 운행일지 이메일: 매일 08:00 이후 최초 1회, 마스터 관리자 + 통근 차량 관리 관리자 중
+    //      이메일을 등록한 사람에게 전날(어제)치 출근/정시퇴근/연장퇴근 운행 결과를 요약해 보냅니다.
+    //      웹 푸시와 달리 SMTP 설정이 없어도 항상 시도해보고(mailer.js가 자동으로 스킵), 메일 발송 자체가
+    //      실패해도 다른 크론 작업에 영향을 주지 않도록 별도로 처리합니다.
+    {
+      const partsNow = getKSTParts(new Date());
+      const nowMin = partsNow.hour * 60 + partsNow.minute;
+      const startMin = BUS_LOG_EMAIL_HOUR * 60;
+      if (nowMin >= startMin && nowMin < startMin + 10) {
+        if (await markSentOnce(today, "busDailyLogEmail")) {
+          try {
+            const recipients = await Employee.find({
+              $or: [{ employeeId: MASTER_ADMIN_ID }, { busAdmin: true }],
+              email: { $nin: ["", null] },
+            }).lean();
+            const emails = recipients.map((e) => e.email).filter(Boolean);
+            if (emails.length) {
+              const yesterday = addDays(today, -1);
+              const vehicles = await Vehicle.find({ active: true }).populate("routeId").lean();
+              const vehicleIds = vehicles.map((v) => v._id);
+              const [rides, logs] = await Promise.all([
+                BusRide.find({ date: yesterday, status: "applied", vehicleId: { $in: vehicleIds } }).lean(),
+                BusDrivingLog.find({ date: yesterday, vehicleId: { $in: vehicleIds } }).lean(),
+              ]);
+              const headcountMap = new Map();
+              for (const r of rides) {
+                const key = `${String(r.vehicleId)}_${r.tripType}`;
+                headcountMap.set(key, (headcountMap.get(key) || 0) + (r.headcount || 1));
+              }
+              const logMap = new Map(logs.map((l) => [`${String(l.vehicleId)}_${l.tripType}`, l]));
+
+              let rowsHtml = "";
+              for (const v of vehicles) {
+                for (const tripType of TRIP_TYPES) {
+                  const key = `${String(v._id)}_${tripType}`;
+                  const applied = headcountMap.get(key) || 0;
+                  const log = logMap.get(key);
+                  const operatedText = !log || log.operated === null ? "미기록" : log.operated ? "운행함" : "운행 안함";
+                  const actualText = log && log.actualHeadcount !== null && log.actualHeadcount !== undefined ? log.actualHeadcount : "-";
+                  if (!applied && !log) continue; // 신청도 기록도 없는 조합은 생략
+                  rowsHtml += `<tr><td>${v.routeId ? v.routeId.name : ""}</td><td>${v.name}</td><td>${TRIP_LABEL[tripType]}</td><td>${applied}</td><td>${operatedText}</td><td>${actualText}</td><td>${(log && log.note) || ""}</td></tr>`;
+                }
+              }
+              const html = `
+                <h3>${yesterday} 통근버스 운행일지</h3>
+                <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+                  <tr style="background:#f1f5f9;"><th>코스</th><th>차량</th><th>운행구분</th><th>신청인원</th><th>실제 운행</th><th>실제 인원</th><th>메모</th></tr>
+                  ${rowsHtml || '<tr><td colspan="7">기록이 없습니다.</td></tr>'}
+                </table>`;
+              await sendMail({ to: emails, subject: `[통근버스] ${yesterday} 운행일지`, html });
+            }
+            results.busDailyLogEmail = "sent";
+          } catch (err) {
+            console.error("[cron] 통근버스 운행일지 이메일 처리 중 오류:", err.message);
+            results.busDailyLogEmail = "error";
+          }
+        }
+      }
+    }
 
     // 0) 오래된 식단표 자동 정리: 하루 1회, 푸시 알림(VAPID) 설정 여부와 관계없이 항상 동작합니다.
     if (await markSentOnce(today, "menuCleanup")) {
@@ -92,10 +201,6 @@ router.get("/tick", async (req, res) => {
       return res.json({ ok: true, date: today, ...results, pushSkipped: "VAPID 키가 설정되지 않아 알림 기능이 비활성화되어 있습니다." });
     }
 
-    const lunchDeadline = await getDeadline("lunch");
-    const dinnerDeadline = await getDeadline("dinner");
-    const lunchDeadlineMinutes = lunchDeadline.hour * 60 + lunchDeadline.minute;
-    const dinnerDeadlineMinutes = dinnerDeadline.hour * 60 + dinnerDeadline.minute;
     const lunchReminderMinutes = lunchDeadlineMinutes - REMINDER_MINUTES_BEFORE;
     const dinnerReminderMinutes = dinnerDeadlineMinutes - REMINDER_MINUTES_BEFORE;
 
@@ -137,9 +242,8 @@ router.get("/tick", async (req, res) => {
       }
     }
 
-    // 3) 관리자 일일 집계 알림: 중식/석식 마감시간이 서로 다르므로, 더 늦은 마감시간이 지난 이후
+    // 3) 관리자 일일 집계 알림(웹 푸시): 중식/석식 마감시간이 서로 다르므로, 더 늦은 마감시간이 지난 이후
     //    최초 1회 관리자에게 오늘자 최종 집계를 발송합니다.
-    const finalDeadlineMinutes = Math.max(lunchDeadlineMinutes, dinnerDeadlineMinutes);
     if (nowMinutes >= finalDeadlineMinutes) {
       if (await markSentOnce(today, "dailySummary")) {
         const applied = await Reservation.find({ date: today, status: "applied" }).lean();

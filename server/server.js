@@ -3,6 +3,7 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const Employee = require("./models/Employee");
 const Settings = require("./models/Settings");
@@ -16,6 +17,10 @@ const announcementRoutes = require("./routes/announcement");
 const pushRoutes = require("./routes/push");
 const cronRoutes = require("./routes/cron");
 const ratingRoutes = require("./routes/rating");
+const busRoutes = require("./routes/bus");
+const busAdminRoutes = require("./routes/busAdmin");
+const busDriverRoutes = require("./routes/busDriver");
+const masterRoutes = require("./routes/master");
 
 const app = express();
 app.use(cors());
@@ -30,6 +35,10 @@ app.use("/api/announcement", announcementRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/cron", cronRoutes);
 app.use("/api/rating", ratingRoutes);
+app.use("/api/bus", busRoutes);
+app.use("/api/bus-admin", busAdminRoutes);
+app.use("/api/bus-driver", busDriverRoutes);
+app.use("/api/master", masterRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
@@ -48,8 +57,13 @@ async function bootstrapAdmin() {
   const department = process.env.ADMIN_DEPARTMENT || "관리팀";
   const existing = await Employee.findOne({ employeeId: id });
   if (!existing) {
-    await Employee.create({ employeeId: id, name, department, role: "admin", active: true });
-    console.log(`[bootstrap] 관리자 계정 생성됨: 사번="${id}" 이름="${name}"`);
+    // 마스터 관리자 계정은 통근버스 개발자 모드 접근을 위해 비밀번호가 필요합니다.
+    // MASTER_INITIAL_PASSWORD 환경변수로 초기값을 지정할 수 있고, 지정하지 않으면 기본값이 사용됩니다.
+    // 최초 로그인 후 "개발자 모드" 화면에서 반드시 비밀번호를 변경해주세요.
+    const initialPassword = process.env.MASTER_INITIAL_PASSWORD || "admin1234!";
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
+    await Employee.create({ employeeId: id, name, department, role: "admin", active: true, passwordHash });
+    console.log(`[bootstrap] 관리자 계정 생성됨: 사번="${id}" 이름="${name}" (초기 비밀번호는 MASTER_INITIAL_PASSWORD 환경변수 또는 기본값을 확인하세요)`);
   } else if (existing.role !== "admin") {
     existing.role = "admin";
     await existing.save();

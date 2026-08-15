@@ -30,10 +30,19 @@ const API = {
       fetchBody = body;
     }
     const res = await fetch(this.base + path, { method, headers, body: fetchBody });
+    if (res.status === 401 && opts.silent) {
+      // silent 호출(예: 로그인)에서의 401은 세션 만료가 아니라 값 자체가 틀린 경우(예: 비밀번호 오류)이므로,
+      // 강제 로그아웃/새로고침 없이 서버가 내려준 오류 메시지와 code를 그대로 호출자에게 전달합니다.
+      const ct401 = res.headers.get("content-type") || "";
+      const data401 = ct401.includes("application/json") ? await res.json().catch(() => ({})) : {};
+      const err401 = new Error(data401.error || "요청 처리 중 오류가 발생했습니다.");
+      err401.code = data401.code;
+      throw err401;
+    }
     if (res.status === 401) {
       this.setToken(null);
       this.setUser(null);
-      if (!opts.silent) window.location.reload();
+      window.location.reload();
       throw new Error("Unauthorized");
     }
     const contentType = res.headers.get("content-type") || "";
@@ -42,7 +51,11 @@ const API = {
       return res; // caller handles (e.g., file download)
     }
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "요청 처리 중 오류가 발생했습니다.");
+    if (!res.ok) {
+      const err = new Error(data.error || "요청 처리 중 오류가 발생했습니다.");
+      err.code = data.code;
+      throw err;
+    }
     return data;
   },
   get(path) {

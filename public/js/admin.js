@@ -67,6 +67,12 @@ const AdminUI = {
     document.querySelectorAll("#adminTabs button").forEach((b) => {
       b.addEventListener("click", () => this.switchTab(b.dataset.atab));
     });
+    // "개발자 모드" 탭은 마스터 관리자(사번 admin) 계정에게만 보입니다. 다른 관리자는 이 탭 자체가
+    // 화면에 나타나지 않고, 혹시 URL을 조작해 접근을 시도해도 서버(requireMasterAdmin)에서 차단됩니다.
+    const user = API.getUser();
+    if (user && user.isMasterAdmin) {
+      document.getElementById("atabDeveloper").classList.remove("hidden");
+    }
   },
 
   switchTab(tab) {
@@ -80,6 +86,7 @@ const AdminUI = {
       menu: "adminMenuView",
       satisfaction: "adminSatisfactionView",
       settings: "adminSettingsView",
+      developer: "adminDeveloperView",
     };
     Object.entries(map).forEach(([name, id]) => {
       document.getElementById(id).classList.toggle("hidden", name !== tab);
@@ -91,6 +98,7 @@ const AdminUI = {
     else if (tab === "menu") this.renderMenu();
     else if (tab === "satisfaction") this.renderSatisfaction();
     else if (tab === "settings") this.renderSettings();
+    else if (tab === "developer") this.renderDeveloper();
   },
 
   /* -------------------- 신청 현황 (당일 신청/취소 강제 변경 가능) -------------------- */
@@ -1198,6 +1206,134 @@ const AdminUI = {
       `;
     } catch (err) {
       body.textContent = err.message;
+    }
+  },
+
+  /* -------------------- 개발자 모드 (마스터 관리자 전용) --------------------
+     통근버스 기능 공개 여부(비공개 개발자 모드 ON/OFF), 마스터 비밀번호 변경,
+     통근 차량 관리 관리자/기사 권한 부여를 다룹니다. 이 탭은 isMasterAdmin이 아니면 애초에 보이지 않고,
+     서버(requireMasterAdmin)에서도 다시 한번 확인하므로 일반 관리자는 절대 접근할 수 없습니다. */
+  devEmployeesCache: [],
+  devSearchTerm: "",
+
+  async renderDeveloper() {
+    const container = document.getElementById("adminDeveloperView");
+    container.innerHTML = `<div class="card">${t("loading")}</div>`;
+    try {
+      const [busSystem, vehicles] = await Promise.all([API.get("/master/bus-system"), API.get("/bus-admin/vehicles").catch(() => ({ vehicles: [] }))]);
+      container.innerHTML = `
+        <div class="card">
+          <h2>${t("devBusSystemTitle")}</h2>
+          <p class="deadline-note">${t("devBusSystemHelp")}</p>
+          <p><b>${t("devBusSystemStatus")}:</b> ${busSystem.enabled ? t("devBusSystemOn") : t("devBusSystemOff")}</p>
+          <div class="field"><label>${t("devBusSystemNote")}</label><input id="devBusNoteInput" value="${escapeHtml(busSystem.note || "")}" placeholder="${t("devBusSystemNotePlaceholder")}"></div>
+          <div class="field"><label>${t("masterPassword")}</label><input type="password" id="devBusPasswordInput"></div>
+          <div class="toolbar">
+            <button id="devBusEnableBtn">${t("devBusSystemEnable")}</button>
+            <button class="secondary" id="devBusDisableBtn">${t("devBusSystemDisable")}</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>${t("devChangePasswordTitle")}</h2>
+          <div class="field"><label>${t("devCurrentPassword")}</label><input type="password" id="devCurrentPasswordInput"></div>
+          <div class="field"><label>${t("devNewPassword")}</label><input type="password" id="devNewPasswordInput"></div>
+          <div class="toolbar"><button id="devChangePasswordBtn">${t("save")}</button></div>
+        </div>
+        <div class="card">
+          <h2>${t("devPermissionsTitle")}</h2>
+          <p class="deadline-note">${t("devPermissionsHelp")}</p>
+          <div class="toolbar">
+            <input type="text" id="devEmpSearchInput" placeholder="${t("empSearchPlaceholder")}" value="${escapeHtml(this.devSearchTerm)}">
+          </div>
+          <div id="devEmpList">${t("loading")}</div>
+        </div>
+      `;
+      document.getElementById("devBusEnableBtn").addEventListener("click", () => this.saveBusSystem(true));
+      document.getElementById("devBusDisableBtn").addEventListener("click", () => this.saveBusSystem(false));
+      document.getElementById("devChangePasswordBtn").addEventListener("click", () => this.changeMasterPassword());
+      document.getElementById("devEmpSearchInput").addEventListener("input", (e) => {
+        this.devSearchTerm = e.target.value;
+        this.loadDevEmployees(vehicles.vehicles || []);
+      });
+      await this.loadDevEmployees(vehicles.vehicles || []);
+    } catch (err) {
+      container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  async saveBusSystem(enabled) {
+    const note = document.getElementById("devBusNoteInput").value;
+    const password = document.getElementById("devBusPasswordInput").value;
+    if (!password) {
+      alert(t("devPasswordRequired"));
+      return;
+    }
+    try {
+      await API.post("/master/bus-system", { enabled, note, password });
+      showToast(t("save"));
+      this.renderDeveloper();
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async changeMasterPassword() {
+    const currentPassword = document.getElementById("devCurrentPasswordInput").value;
+    const newPassword = document.getElementById("devNewPasswordInput").value;
+    try {
+      await API.post("/master/change-password", { currentPassword, newPassword });
+      showToast(t("devPasswordChanged"));
+      document.getElementById("devCurrentPasswordInput").value = "";
+      document.getElementById("devNewPasswordInput").value = "";
+    } catch (err) {
+      alert(err.message);
+    }
+  },
+
+  async loadDevEmployees(vehicles) {
+    const el = document.getElementById("devEmpList");
+    el.innerHTML = t("loading");
+    try {
+      const q = this.devSearchTerm ? `?q=${encodeURIComponent(this.devSearchTerm)}` : "";
+      const data = await API.get(`/master/employees${q}`);
+      this.devEmployeesCache = data.employees;
+      const vehicleOptions = (vid) => `<option value="">-</option>` + vehicles.map((v) => `<option value="${v._id}" ${vid === String(v._id) ? "selected" : ""}>${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</option>`).join("");
+      el.innerHTML = `
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("devBusAdminCol")}</th><th>${t("devBusDriverCol")}</th><th>${t("devDriverVehicleCol")}</th><th></th></tr></thead>
+          <tbody>
+            ${data.employees.map((e) => `
+              <tr data-emp-row="${e.employeeId}">
+                <td>${escapeHtml(e.employeeId)}</td>
+                <td>${escapeHtml(e.name)}</td>
+                <td>${escapeHtml(e.department)}</td>
+                <td><input type="checkbox" class="dev-busadmin-cb" ${e.busAdmin ? "checked" : ""}></td>
+                <td><input type="checkbox" class="dev-busdriver-cb" ${e.busDriver ? "checked" : ""}></td>
+                <td><select class="dev-vehicle-select">${vehicleOptions(e.driverVehicleId)}</select></td>
+                <td><button class="secondary" data-dev-save="${e.employeeId}">${t("save")}</button></td>
+              </tr>
+            `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`}
+          </tbody>
+        </table></div>
+      `;
+      el.querySelectorAll("[data-dev-save]").forEach((btn) => {
+        btn.addEventListener("click", () => this.saveDevPermissions(btn.dataset.devSave));
+      });
+    } catch (err) {
+      el.textContent = err.message;
+    }
+  },
+
+  async saveDevPermissions(employeeId) {
+    const row = document.querySelector(`[data-emp-row="${employeeId}"]`);
+    const busAdmin = row.querySelector(".dev-busadmin-cb").checked;
+    const busDriver = row.querySelector(".dev-busdriver-cb").checked;
+    const driverVehicleId = row.querySelector(".dev-vehicle-select").value;
+    try {
+      await API.put(`/master/employees/${employeeId}/bus-permissions`, { busAdmin, busDriver, driverVehicleId });
+      showToast(t("save"));
+    } catch (err) {
+      alert(err.message);
     }
   },
 };

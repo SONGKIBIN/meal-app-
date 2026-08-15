@@ -333,6 +333,29 @@ table.data-table th { background: #f0f2f6; }
 }
 .rating-reason:disabled { background: #f5f6f8; color: var(--text-muted); resize: none; }
 
+/* 통근버스 */
+.bus-row {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+.bus-row:first-of-type { border-top: none; padding-top: 0; }
+.bus-row .meal-name { flex: 1 1 100%; }
+.bus-row select, .bus-row input[type=number], .bus-row input[type=text] {
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.bus-row button { width: auto; padding: 5px 10px; font-size: 0.8rem; }
+.bus-row.applied { background: #ecfdf5; border-radius: 8px; padding: 8px; }
+.bus-row.disabled-row { opacity: 0.6; }
+.bus-row.disabled-row .deadline-note { margin: 0; }
+
 @media print {
   header.topbar, .toolbar, .tabs, .no-print { display: none !important; }
   body { background: white; }

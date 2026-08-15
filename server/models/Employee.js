@@ -20,6 +20,19 @@ const employeeSchema = new mongoose.Schema(
     requestedHeadcount: { type: Number, default: null, min: 0 },
     requestedHeadcountNote: { type: String, default: "", trim: true },
     requestedHeadcountAt: { type: Date, default: null },
+    // 이메일 등록 시 관리자 일일 집계/통근버스 운행일지 등을 이메일로 통보받을 수 있습니다 (선택 입력).
+    email: { type: String, default: "", trim: true, lowercase: true },
+    // 마스터 관리자(사번 admin/이름 master) 로그인 비밀번호 해시. 다른 계정은 사용하지 않습니다.
+    passwordHash: { type: String, default: "" },
+    // ---- 통근버스(신규) 권한: master만 부여할 수 있는 별도 권한이며, 기존 role(admin/manager)과 독립적으로 켜고 끌 수 있습니다.
+    // true면 통근 차량 관리 관리자(차량/코스 관리, 인원 집계, 엑셀 다운로드 등)로 동작합니다.
+    busAdmin: { type: Boolean, default: false },
+    // busAdmin이 담당하는 차량 id 목록. 비어있으면(기본값) 전체 차량을 관리합니다.
+    managedVehicles: { type: [String], default: [] },
+    // true면 통근 차량 기사(기사 모드)로 동작합니다.
+    busDriver: { type: Boolean, default: false },
+    // 기사가 실제로 운행하는 차량 id (busDriver=true일 때만 의미가 있습니다).
+    driverVehicleId: { type: String, default: "" },
   },
   { timestamps: true }
 );
