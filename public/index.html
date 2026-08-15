@@ -160,7 +160,14 @@
 
   <!-- 기사 모드 (busDriver 권한) -->
   <section id="driverView" class="hidden">
+    <div class="tabs" id="driverTabs">
+      <button data-dtab="today" class="active" data-i18n="driverTodayTab">당일운행</button>
+      <button data-dtab="week" data-i18n="driverWeekOperationTab">주간 운행명령</button>
+      <button data-dtab="monthly" data-i18n="monthlySummary">월별 집계</button>
+    </div>
     <section id="driverMainView"></section>
+    <section id="driverWeekView" class="hidden"></section>
+    <section id="driverMonthlyView" class="hidden"></section>
   </section>
 </main>
 

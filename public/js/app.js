@@ -184,7 +184,7 @@ function switchMainTab(tabName) {
   } else if (tabName === "busAdmin") {
     BusAdminUI.switchTab(BusAdminUI.currentTab || "status");
   } else if (tabName === "driver") {
-    DriverUI.load();
+    DriverUI.switchTab(DriverUI.currentTab || "today");
   }
 }
 

@@ -1,25 +1,50 @@
 /* 통근버스 기사 모드 화면 로직 */
 
 const DriverUI = {
+  currentTab: null,
   date: null,
+  weekAnchor: null,
+  month: null,
 
-  async load(date) {
-    const container = document.getElementById("driverMainView");
-    container.innerHTML = `<div class="card">${t("loading")}</div>`;
-    try {
-      this.date = date || this.date || todayStr();
-      const data = await API.get(`/bus-driver/today?date=${this.date}`);
-      this.render(data);
-    } catch (err) {
-      container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
-    }
+  init() {
+    document.querySelectorAll("#driverTabs button").forEach((b) => {
+      b.addEventListener("click", () => this.switchTab(b.dataset.dtab));
+    });
+  },
+
+  switchTab(tab) {
+    this.currentTab = tab || this.currentTab || "today";
+    document.querySelectorAll("#driverTabs button").forEach((b) => b.classList.toggle("active", b.dataset.dtab === this.currentTab));
+    const map = { today: "driverMainView", week: "driverWeekView", monthly: "driverMonthlyView" };
+    Object.entries(map).forEach(([name, id]) => document.getElementById(id).classList.toggle("hidden", name !== this.currentTab));
+    if (this.currentTab === "today") this.load(this.date);
+    else if (this.currentTab === "week") this.loadWeek(this.weekAnchor);
+    else if (this.currentTab === "monthly") this.loadMonthly(this.month);
+  },
+
+  // app.js의 switchMainTab에서 호출되는 진입점입니다.
+  load(date) {
+    return this.loadToday(date);
   },
 
   tripLabel(tt) {
     return t(`busTrip_${tt}`);
   },
 
-  render(data) {
+  /* -------------------- 당일운행 (본인 차량 운행일지 기록 + 전체 차량 현황) -------------------- */
+  async loadToday(date) {
+    const container = document.getElementById("driverMainView");
+    container.innerHTML = `<div class="card">${t("loading")}</div>`;
+    try {
+      this.date = date || this.date || todayStr();
+      const data = await API.get(`/bus-driver/today?date=${this.date}`);
+      this.renderToday(data);
+    } catch (err) {
+      container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  renderToday(data) {
     const container = document.getElementById("driverMainView");
     const myVehicle = data.myVehicle;
     container.innerHTML = `
@@ -38,20 +63,26 @@ const DriverUI = {
       ` : `<div class="card"><p>${t("driverNoVehicle")}</p></div>`}
       <div class="card">
         <h3>${t("driverAllVehicles")}</h3>
-        <table class="data-table">
-          <thead><tr><th>${t("busVehicleLabel")}</th><th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th></tr></thead>
-          <tbody>
-            ${data.vehicles.map((v) => `
-              <tr class="${v.isMine ? "today" : ""}">
-                <td>${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</td>
-                ${v.trips.map((tp) => `<td>${tp.enabled ? `${t("busOperating")} · ${tp.appliedHeadcount}${t("headcountUnit")}` : t("busNotOperating")}</td>`).join("")}
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
+        <p class="deadline-note">${t("driverAllVehiclesHelp")}</p>
+        ${data.vehicles.map((v) => `
+          <h4 class="${v.isMine ? "today" : ""}" style="margin-bottom:4px;">${escapeHtml(v.routeName)} ${escapeHtml(v.name)}${v.isMine ? ` (${t("driverMyVehicle")})` : ""}</h4>
+          <table class="data-table">
+            <thead><tr><th>${t("busTripLabel")}</th><th>${t("busOperationStatusLabel")}</th><th>${t("driverAppliedHeadcount")}</th><th>${t("busRidersLabel")}</th></tr></thead>
+            <tbody>
+              ${v.trips.map((tp) => `
+                <tr>
+                  <td>${this.tripLabel(tp.tripType)}</td>
+                  <td>${tp.enabled ? t("busOperating") : t("busNotOperating")}</td>
+                  <td>${tp.enabled ? `${tp.appliedHeadcount}${t("headcountUnit")}` : "-"}</td>
+                  <td>${tp.enabled ? (tp.riders.map((r) => escapeHtml(`${r.department ? r.department + " " : ""}${r.employeeName}`)).join(", ") || t("noData")) : "-"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `).join("")}
       </div>
     `;
-    document.getElementById("drvDate").addEventListener("change", (e) => this.load(e.target.value));
+    document.getElementById("drvDate").addEventListener("change", (e) => this.loadToday(e.target.value));
     if (myVehicle) {
       myVehicle.trips.forEach((tp) => {
         const form = document.getElementById(`drvLogForm_${tp.tripType}`);
@@ -69,9 +100,11 @@ const DriverUI = {
         </div>
       `;
     }
+    const riderNames = tp.riders.map((r) => escapeHtml(`${r.department ? r.department + " " : ""}${r.employeeName}${r.headcount > 1 ? `(${r.headcount})` : ""}`)).join(", ");
     return `
       <form class="meal-row bus-row" id="drvLogForm_${tp.tripType}" style="flex-wrap:wrap;">
         <div class="meal-name">${this.tripLabel(tp.tripType)} (${t("driverAppliedHeadcount")}: ${tp.appliedHeadcount}${t("headcountUnit")})</div>
+        <div class="deadline-note" style="flex-basis:100%;">${t("busRidersLabel")}: ${riderNames || t("noData")}</div>
         <select name="operated">
           <option value="unset" ${tp.operated === null ? "selected" : ""}>${t("driverNotRecorded")}</option>
           <option value="true" ${tp.operated === true ? "selected" : ""}>${t("driverOperated")}</option>
@@ -95,9 +128,103 @@ const DriverUI = {
     try {
       await API.post("/bus-driver/log", { date: this.date, tripType, vehicleId, operated, actualHeadcount, note });
       showToast(t("save"));
-      this.load(this.date);
+      this.loadToday(this.date);
     } catch (err) {
       alert(err.message);
     }
   },
+
+  /* -------------------- 주간 운행명령 (읽기 전용) -------------------- */
+  async loadWeek(anchorDate) {
+    const container = document.getElementById("driverWeekView");
+    container.innerHTML = `<div class="card">${t("loading")}</div>`;
+    try {
+      const anchor = anchorDate || this.weekAnchor || todayStr();
+      const data = await API.get(`/bus-driver/week-operation?date=${anchor}`);
+      this.weekAnchor = anchor;
+      this.renderWeek(data);
+    } catch (err) {
+      container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  shiftWeek(days) {
+    const d = new Date((this.weekAnchor || todayStr()) + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    this.loadWeek(d.toISOString().slice(0, 10));
+  },
+
+  renderWeek(data) {
+    const container = document.getElementById("driverWeekView");
+    const weekLabel = data.week && data.week.length ? `${data.week[0]} ~ ${data.week[6]}` : "-";
+    const vehicleNames = data.days[0] ? data.days[0].vehicles.map((v) => `${v.routeName} ${v.name}`) : [];
+    container.innerHTML = `
+      <div class="card">
+        <h2 style="margin-top:0;">${t("driverWeekOperationTab")}</h2>
+        <div class="week-nav">
+          <button class="secondary" id="drvPrevWeekBtn">${t("prevWeek")}</button>
+          <div class="label">${weekLabel}</div>
+          <button class="secondary" id="drvNextWeekBtn">${t("nextWeek")}</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr><th rowspan="2">${t("date")}</th>${data.days[0] ? data.days[0].vehicles.map((v) => `<th colspan="3">${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</th>`).join("") : ""}</tr>
+            <tr>${data.days[0] ? data.days[0].vehicles.map(() => `<th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th>`).join("") : ""}</tr>
+          </thead>
+          <tbody>
+            ${data.days.map((day) => `
+              <tr>
+                <td>${day.date}</td>
+                ${day.vehicles.map((v) => v.trips.map((tp) => `<td>${tp.enabled ? t("busOperating") : t("busNotOperating")}</td>`).join("")).join("")}
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+    document.getElementById("drvPrevWeekBtn").addEventListener("click", () => this.shiftWeek(-7));
+    document.getElementById("drvNextWeekBtn").addEventListener("click", () => this.shiftWeek(7));
+  },
+
+  /* -------------------- 월별 집계 (읽기 전용) -------------------- */
+  async loadMonthly(month) {
+    const container = document.getElementById("driverMonthlyView");
+    container.innerHTML = `<div class="card">${t("loading")}</div>`;
+    try {
+      const m = month || this.month || todayStr().slice(0, 7);
+      const data = await API.get(`/bus-driver/summary/monthly?month=${m}`);
+      this.month = m;
+      this.renderMonthly(data);
+    } catch (err) {
+      container.innerHTML = `<div class="card">${escapeHtml(err.message)}</div>`;
+    }
+  },
+
+  renderMonthly(data) {
+    const container = document.getElementById("driverMonthlyView");
+    container.innerHTML = `
+      <div class="card">
+        <h2 style="margin-top:0;">${t("monthlySummary")}</h2>
+        <div class="toolbar">
+          <label>${t("selectMonth")}</label>
+          <input type="month" id="drvMonthInput" value="${data.month}">
+        </div>
+      </div>
+      ${data.vehicles.map((v) => `
+        <div class="card">
+          <h3>${escapeHtml(v.routeName)} ${escapeHtml(v.name)}</h3>
+          <p>${t("busTrip_commute")} ${t("total")}: ${v.totals.commute} / ${t("busTrip_regularLeave")} ${t("total")}: ${v.totals.regularLeave} / ${t("busTrip_extendedLeave")} ${t("total")}: ${v.totals.extendedLeave}</p>
+          <table class="data-table">
+            <thead><tr><th>${t("date")}</th><th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th></tr></thead>
+            <tbody>
+              ${v.daily.map((d) => `<tr><td>${d.date}</td><td>${d.commute}</td><td>${d.regularLeave}</td><td>${d.extendedLeave}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      `).join("")}
+    `;
+    document.getElementById("drvMonthInput").addEventListener("change", (e) => this.loadMonthly(e.target.value));
+  },
 };
+
+document.addEventListener("DOMContentLoaded", () => DriverUI.init());

@@ -54,8 +54,8 @@ const BusAdminUI = {
             <h3>${escapeHtml(v.routeName)} - ${escapeHtml(v.name)}</h3>
             ${v.trips.map((tp) => `
               <table class="data-table">
-                <thead><tr><th colspan="5">${this.tripLabel(tp.tripType)} (${tp.count}${t("headcountUnit")})</th></tr>
-                <tr><th>${t("department")}</th><th>${t("name")}</th><th>${t("employeeId")}</th><th>${t("busStopLabel")}</th><th></th></tr></thead>
+                <thead><tr><th colspan="6">${this.tripLabel(tp.tripType)} (${tp.count}${t("headcountUnit")})</th></tr>
+                <tr><th>${t("department")}</th><th>${t("name")}</th><th>${t("employeeId")}</th><th>${t("busStopLabel")}</th><th>${t("busSourceLabel")}</th><th></th></tr></thead>
                 <tbody>
                   ${tp.riders.map((r) => `
                     <tr>
@@ -63,9 +63,16 @@ const BusAdminUI = {
                       <td>${escapeHtml(r.employeeName)}</td>
                       <td>${escapeHtml(r.employeeId)}</td>
                       <td>${escapeHtml(r.stop)}${r.headcount > 1 ? ` (${r.headcount}${t("headcountUnit")})` : ""}</td>
-                      <td><button class="secondary" data-ba-cancel-ride="${r._id}">${t("cancel")}</button></td>
+                      <td>${r.source === "default" ? t("busSourceDefault") : t("busSourceExplicit")}</td>
+                      <td><button class="secondary" data-ba-cancel-ride
+                        ${r.rideId ? `data-ride-id="${r.rideId}"` : ""}
+                        data-employee-id="${escapeHtml(r.employeeId)}"
+                        data-date="${date}"
+                        data-trip="${tp.tripType}"
+                        data-vehicle="${v.vehicleId}"
+                      >${t("cancel")}</button></td>
                     </tr>
-                  `).join("") || `<tr><td colspan="5">${t("noData")}</td></tr>`}
+                  `).join("") || `<tr><td colspan="6">${t("noData")}</td></tr>`}
                 </tbody>
               </table>
             `).join("")}
@@ -80,7 +87,15 @@ const BusAdminUI = {
         btn.addEventListener("click", async () => {
           if (!confirm(t("confirmCancel"))) return;
           try {
-            await API.del("/bus-admin/ride", { rideId: btn.dataset.baCancelRide });
+            const body = btn.dataset.rideId
+              ? { rideId: btn.dataset.rideId }
+              : {
+                  employeeId: btn.dataset.employeeId,
+                  date: btn.dataset.date,
+                  tripType: btn.dataset.trip,
+                  vehicleId: btn.dataset.vehicle,
+                };
+            await API.del("/bus-admin/ride", body);
             showToast(t("cancelSuccess"));
             this.renderStatus();
           } catch (err) {

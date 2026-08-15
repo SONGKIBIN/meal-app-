@@ -7,6 +7,7 @@ const PushSubscription = require("../models/PushSubscription");
 const NotificationLog = require("../models/NotificationLog");
 const Vehicle = require("../models/Vehicle");
 const BusRide = require("../models/BusRide");
+const BusDefaultRide = require("../models/BusDefaultRide");
 const BusDrivingLog = require("../models/BusDrivingLog");
 const { cleanupOldMenus } = require("./menu");
 const { sendMail } = require("../utils/mailer");
@@ -18,7 +19,8 @@ const {
   DINNER_DEADLINE_HOUR,
   DINNER_DEADLINE_MINUTE,
 } = require("../utils/dateUtil");
-const { TRIP_TYPES } = require("../utils/busOperation");
+const { TRIP_TYPES, resolveOperationMap, isDefaultOperatingDayBulk } = require("../utils/busOperation");
+const { computeRiders } = require("../utils/busRiders");
 
 const router = express.Router();
 const REMINDER_MINUTES_BEFORE = 30; // 마감 몇 분 전에 임박 알림을 보낼지
@@ -150,15 +152,21 @@ router.get("/tick", async (req, res) => {
             if (emails.length) {
               const yesterday = addDays(today, -1);
               const vehicles = await Vehicle.find({ active: true }).populate("routeId").lean();
-              const vehicleIds = vehicles.map((v) => v._id);
-              const [rides, logs] = await Promise.all([
-                BusRide.find({ date: yesterday, status: "applied", vehicleId: { $in: vehicleIds } }).lean(),
+              const vehicleIds = vehicles.map((v) => String(v._id));
+              const { map: opMap } = await resolveOperationMap(yesterday, vehicleIds);
+              const isDefaultDay = (await isDefaultOperatingDayBulk([yesterday]))[yesterday];
+              const [allDefaults, explicitForDate, logs] = await Promise.all([
+                vehicleIds.length ? BusDefaultRide.find({ vehicleId: { $in: vehicleIds } }).lean() : [],
+                vehicleIds.length ? BusRide.find({ date: yesterday, vehicleId: { $in: vehicleIds } }).lean() : [],
                 BusDrivingLog.find({ date: yesterday, vehicleId: { $in: vehicleIds } }).lean(),
               ]);
               const headcountMap = new Map();
-              for (const r of rides) {
-                const key = `${String(r.vehicleId)}_${r.tripType}`;
-                headcountMap.set(key, (headcountMap.get(key) || 0) + (r.headcount || 1));
+              for (const tripType of TRIP_TYPES) {
+                const ridersByVehicle = computeRiders(tripType, vehicleIds, opMap, isDefaultDay, allDefaults, explicitForDate);
+                for (const vId of vehicleIds) {
+                  const count = (ridersByVehicle[vId] || []).reduce((sum, r) => sum + (r.headcount || 1), 0);
+                  headcountMap.set(`${vId}_${tripType}`, count);
+                }
               }
               const logMap = new Map(logs.map((l) => [`${String(l.vehicleId)}_${l.tripType}`, l]));
 
