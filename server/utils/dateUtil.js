@@ -137,30 +137,52 @@ function isCancelAllowed(dateStr, now = new Date(), deadline = {}) {
   return isApplyAllowed(dateStr, now, deadline);
 }
 
-// 만족도 평가(별점)를 남길 수 있는 시간대입니다. 중식은 12:00~13:00, 석식은 17:00~18:00 (한국 시간, KST)
-// 사이에만 평가할 수 있고, 그 외 시간에는 평가 화면 자체가 보이지 않습니다.
+// 만족도 평가(별점)를 남길 수 있는 시간대입니다 (한국 시간, KST).
+// 중식은 당일 12:00 ~ 익일 08:00, 석식은 당일 17:00 ~ 익일 08:00 사이에 평가할 수 있습니다.
+// 종료 시각(endHour/endMinute)이 시작 시각보다 이르므로 자정을 넘어 다음 날 새벽까지 이어지는
+// 시간대이며, 이 시간 동안 남긴 평가는 "그 전날의" 중식/석식에 대한 평가로 기록됩니다.
 const RATING_WINDOWS = {
-  lunch: { startHour: 12, startMinute: 0, endHour: 15, endMinute: 0 },
-  dinner: { startHour: 17, startMinute: 0, endHour: 20, endMinute: 0 },
+  lunch: { startHour: 12, startMinute: 0, endHour: 8, endMinute: 0 },
+  dinner: { startHour: 17, startMinute: 0, endHour: 8, endMinute: 0 },
 };
 
-function ratingWindowLabel(mealType) {
+// 시작~종료 시각(문자열)과, 자정을 넘겨 다음 날까지 이어지는 시간대인지 여부를 함께 돌려줍니다.
+// 화면(다국어)에서 "당일 12:00 ~ 익일 08:00" 같은 문구를 언어별로 직접 조합할 수 있도록,
+// 여기서는 한국어 문구를 만들지 않고 숫자만 내려줍니다.
+function getRatingWindowTimes(mealType) {
   const w = RATING_WINDOWS[mealType];
-  if (!w) return "";
-  return `${pad(w.startHour)}:${pad(w.startMinute)} ~ ${pad(w.endHour)}:${pad(w.endMinute)}`;
+  if (!w) return null;
+  const startMinutes = w.startHour * 60 + w.startMinute;
+  const endMinutes = w.endHour * 60 + w.endMinute;
+  return {
+    startLabel: `${pad(w.startHour)}:${pad(w.startMinute)}`,
+    endLabel: `${pad(w.endHour)}:${pad(w.endMinute)}`,
+    spansNextDay: endMinutes <= startMinutes,
+  };
 }
 
 /**
- * 지금 시각이 해당 끼니의 만족도 평가 가능 시간대(KST)인지 여부.
+ * 지금 이 순간(KST) 열려있는 만족도 평가 시간대가 있는지, 있다면 어느 날짜의 끼니에 대한 평가인지 판단합니다.
+ * 시간대가 자정을 넘어가므로(예: 당일 12:00 ~ 익일 08:00), 새벽 시간(00:00~08:00)에 접속하면
+ * "오늘 날짜"가 아니라 "전날" 끼니에 대한 평가 시간대가 열려있는 것으로 계산합니다.
+ * 반환값: { date: "YYYY-MM-DD" | null, open: boolean }
  */
-function isRatingWindowOpen(mealType, now = new Date()) {
+function resolveRatingWindow(mealType, now = new Date()) {
   const w = RATING_WINDOWS[mealType];
-  if (!w) return false;
+  if (!w) return { date: null, open: false };
   const parts = getKSTParts(now);
   const cur = parts.hour * 60 + parts.minute;
   const start = w.startHour * 60 + w.startMinute;
   const end = w.endHour * 60 + w.endMinute;
-  return cur >= start && cur < end;
+  if (cur >= start) {
+    // 시작 시각을 지난 이후(당일 저녁까지, 자정 이후로도 계속) → 오늘 날짜의 끼니에 대한 평가 시간대
+    return { date: parts.dateStr, open: true };
+  }
+  if (cur < end) {
+    // 자정을 넘어 종료 시각 이전(새벽) → 전날 끼니에 대한 평가 시간대가 아직 열려있음
+    return { date: addDays(parts.dateStr, -1), open: true };
+  }
+  return { date: null, open: false };
 }
 
 module.exports = {
@@ -182,6 +204,6 @@ module.exports = {
   fixedHolidayLabel,
   isWeekendDate,
   RATING_WINDOWS,
-  ratingWindowLabel,
-  isRatingWindowOpen,
+  getRatingWindowTimes,
+  resolveRatingWindow,
 };

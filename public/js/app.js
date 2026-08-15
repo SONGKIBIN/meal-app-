@@ -278,8 +278,9 @@ function checkTodayReminder(days) {
 
 /* ---------------------------- 식사 만족도 평가(별점) ----------------------------
    평가 카드 자체는 "내 식사 신청" 화면에 항상 보입니다. 다만 실제로 별점을 등록/수정할 수 있는 것은
-   식사를 신청한 사람이, 정해진 시간대(중식 12:00~13:00 / 석식 17:00~18:00, 한국시간) 안에 있을 때뿐이며,
-   그 외에는 별점/이유 입력칸과 등록 버튼이 비활성화되고 안내 문구가 표시됩니다. */
+   식사를 신청한 사람이, 정해진 시간대(중식 당일 12:00~익일 08:00 / 석식 당일 17:00~익일 08:00, 한국시간)
+   안에 있을 때뿐이며, 그 외에는 별점/이유 입력칸과 등록 버튼이 비활성화되고 안내 문구가 표시됩니다.
+   자정을 넘긴 새벽 시간에 평가하면 "전날" 끼니에 대한 평가로 등록됩니다(서버에서 자동 계산). */
 
 let ratingSelected = { lunch: 0, dinner: 0 };
 
@@ -314,17 +315,18 @@ function renderRatingSection(mealType, info) {
   const stars = info.myRating ? info.myRating.stars : 0;
   const reason = info.myRating ? info.myRating.reason : "";
   const interactive = !!(info.applied && info.windowOpen);
+  const windowRangeLabel = t("satisfactionWindowRangeLabel", info.windowStartLabel, info.windowEndLabel, info.windowSpansNextDay);
   const starsHtml = [1, 2, 3, 4, 5].map((n) => `
     <button type="button" class="star-btn ${n <= stars ? "selected" : ""}" data-meal="${mealType}" data-star="${n}" ${interactive ? "" : "disabled"}>★</button>
   `).join("");
   const noteText = !info.applied
     ? t("satisfactionNeedApply", mealLabel)
     : !info.windowOpen
-    ? t("satisfactionWindowNote", info.windowLabel)
+    ? t("satisfactionWindowNote", windowRangeLabel)
     : "";
   return `
     <div class="rating-section" data-meal-section="${mealType}">
-      <div class="rating-section-title">${mealLabel} <span class="deadline-note" style="display:inline;">(${escapeHtml(info.windowLabel)})</span></div>
+      <div class="rating-section-title">${mealLabel} <span class="deadline-note" style="display:inline;">(${escapeHtml(windowRangeLabel)})</span></div>
       ${noteText ? `<p class="deadline-note">${escapeHtml(noteText)}</p>` : ""}
       <div class="star-rating" data-meal="${mealType}">${starsHtml}</div>
       <textarea class="rating-reason" data-meal="${mealType}" rows="2" maxlength="500" placeholder="${t("satisfactionReasonPlaceholder")}" ${interactive ? "" : "disabled"}>${escapeHtml(reason)}</textarea>

@@ -218,6 +218,7 @@ const I18N = {
     satisfactionReasonRequired: "별점을 남긴 이유를 입력해야 등록할 수 있습니다.",
     satisfactionNeedApply: (mealLabel) => `${mealLabel}을 신청하면 평가할 수 있습니다.`,
     satisfactionWindowNote: (windowLabel) => `평가 가능 시간: ${windowLabel}`,
+    satisfactionWindowRangeLabel: (start, end, spansNextDay) => (spansNextDay ? `당일 ${start} ~ 익일 ${end}` : `${start} ~ ${end}`),
     satisfactionAlreadyRated: "이미 평가하셨습니다 (시간 안에 다시 눌러 수정 가능).",
   },
   en: {
@@ -436,6 +437,7 @@ const I18N = {
     satisfactionReasonRequired: "You must enter a reason to submit your rating.",
     satisfactionNeedApply: (mealLabel) => `Apply for ${mealLabel} to enable rating.`,
     satisfactionWindowNote: (windowLabel) => `Rating available: ${windowLabel}`,
+    satisfactionWindowRangeLabel: (start, end, spansNextDay) => (spansNextDay ? `${start} today – ${end} next day` : `${start} ~ ${end}`),
     satisfactionAlreadyRated: "Already rated (tap again within the time window to update).",
   },
   zh: {
@@ -655,6 +657,7 @@ const I18N = {
     satisfactionReasonRequired: "必须输入理由才能提交评价。",
     satisfactionNeedApply: (mealLabel) => `申请${mealLabel}后即可评价。`,
     satisfactionWindowNote: (windowLabel) => `可评价时间：${windowLabel}`,
+    satisfactionWindowRangeLabel: (start, end, spansNextDay) => (spansNextDay ? `当日${start} ~ 次日${end}` : `${start} ~ ${end}`),
     satisfactionAlreadyRated: "您已评价（评价时间内可再次点击修改）。",
   },
 };
