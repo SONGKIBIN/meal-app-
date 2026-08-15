@@ -99,6 +99,10 @@ function showAppView() {
   document.getElementById("tabMy").classList.toggle("hidden", isMasterAdmin);
   document.getElementById("tabBusAdmin").classList.toggle("hidden", !isBusAdmin);
   document.getElementById("tabDriver").classList.toggle("hidden", !isBusDriver);
+  // "개발자 모드" 탭(마스터 관리자 전용)도 로그인할 때마다 다시 확인합니다. AdminUI.init()의 확인만으로는
+  // 페이지를 새로고침하지 않고 로그인한 경우 반영되지 않는 문제가 있어 여기서도 함께 처리합니다.
+  const devTab = document.getElementById("atabDeveloper");
+  if (devTab) devTab.classList.toggle("hidden", !isMasterAdmin);
   // 통근버스 "내 승차 신청" 탭은 마스터/통근차량 관리자/기사는 항상 보이고, 그 외 직원은 master가
   // 기능을 공개(busSystemEnabled)했을 때만 보입니다 - 서버에 물어봐야 하므로 비동기로 갱신합니다.
   document.getElementById("tabBus").classList.toggle("hidden", !(isBusAdmin || isBusDriver));
