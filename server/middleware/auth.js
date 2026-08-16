@@ -16,11 +16,21 @@ function requireAuth(req, res, next) {
   }
 }
 
-function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== "admin") {
-    return res.status(403).json({ error: "관리자만 사용할 수 있습니다.", code: "NOT_ADMIN" });
+// role=admin 권한은 관리자가 나중에 회수할 수 있으므로, JWT(로그인 시점, 최대 30일 유효)에 저장된
+// role만 믿지 않고 매 요청마다 DB에서 다시 확인합니다(attachManagerScope/attachVehicleScope와 동일한
+// 이유). 이렇게 해야 권한을 회수한 즉시(재로그인 없이도) 접근이 차단됩니다.
+async function requireAdmin(req, res, next) {
+  try {
+    if (!req.user) return res.status(403).json({ error: "관리자만 사용할 수 있습니다.", code: "NOT_ADMIN" });
+    const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+    if (!emp || !emp.active || emp.role !== "admin") {
+      return res.status(403).json({ error: "관리자만 사용할 수 있습니다.", code: "NOT_ADMIN" });
+    }
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
   }
-  next();
 }
 
 // 마스터 관리자(사번 admin, server.js bootstrapAdmin과 동일 기준) 전용 라우트에서 사용합니다.
@@ -41,11 +51,21 @@ function requireBusAdmin(req, res, next) {
 }
 
 // 통근버스 기사 권한(마스터 관리자 또는 master가 busDriver 권한을 부여한 직원)이 있는지 확인합니다.
-function requireBusDriver(req, res, next) {
-  if (!req.user || (!req.user.isMasterAdmin && !req.user.busDriver)) {
-    return res.status(403).json({ error: "통근버스 기사만 사용할 수 있습니다.", code: "NOT_BUS_DRIVER" });
+// busDriver 권한도 master가 나중에 회수할 수 있으므로, attachVehicleScope와 마찬가지로 매 요청마다
+// DB에서 다시 확인해 권한 회수가 즉시(재로그인 없이도) 반영되도록 합니다.
+async function requireBusDriver(req, res, next) {
+  try {
+    if (!req.user) return res.status(403).json({ error: "통근버스 기사만 사용할 수 있습니다.", code: "NOT_BUS_DRIVER" });
+    if (req.user.isMasterAdmin) return next();
+    const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+    if (!emp || !emp.active || !emp.busDriver) {
+      return res.status(403).json({ error: "통근버스 기사만 사용할 수 있습니다.", code: "NOT_BUS_DRIVER" });
+    }
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
   }
-  next();
 }
 
 // 부서 운영자가 실제로 조회/관리할 수 있는 부서 목록을 최신 DB 값 기준으로 계산해 req.scopeDepartments에 담아둡니다.
@@ -56,7 +76,7 @@ function requireBusDriver(req, res, next) {
 async function attachManagerScope(req, res, next) {
   try {
     const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-    if (!emp || emp.role !== "manager") {
+    if (!emp || !emp.active || emp.role !== "manager") {
       return res.status(403).json({ error: "부서 운영자만 사용할 수 있습니다.", code: "NOT_MANAGER" });
     }
     const set = new Set([emp.department, ...(emp.managedDepartments || [])].filter((d) => d && d.trim()));
@@ -78,7 +98,7 @@ async function attachVehicleScope(req, res, next) {
       return next();
     }
     const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-    if (!emp || !emp.busAdmin) {
+    if (!emp || !emp.active || !emp.busAdmin) {
       return res.status(403).json({ error: "통근 차량 관리 관리자만 사용할 수 있습니다.", code: "NOT_BUS_ADMIN" });
     }
     const managed = Array.isArray(emp.managedVehicles) ? emp.managedVehicles.filter(Boolean) : [];

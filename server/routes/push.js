@@ -24,21 +24,21 @@ router.get("/vapid-public-key", (req, res) => {
 router.post("/subscribe", async (req, res) => {
   try {
     const { subscription } = req.body;
-    if (!subscription || !subscription.endpoint || !subscription.keys) {
+    const endpoint = subscription && typeof subscription.endpoint === "string" ? subscription.endpoint.trim() : "";
+    const p256dh = subscription && subscription.keys && typeof subscription.keys.p256dh === "string" ? subscription.keys.p256dh : "";
+    const auth = subscription && subscription.keys && typeof subscription.keys.auth === "string" ? subscription.keys.auth : "";
+    if (!endpoint || !p256dh || !auth) {
       return res.status(400).json({ error: "잘못된 구독 정보입니다." });
     }
     await PushSubscription.findOneAndUpdate(
-      { endpoint: subscription.endpoint },
+      { endpoint },
       {
         $set: {
           employeeId: req.user.employeeId,
           name: req.user.name,
           role: req.user.role,
-          endpoint: subscription.endpoint,
-          keys: {
-            p256dh: subscription.keys.p256dh,
-            auth: subscription.keys.auth,
-          },
+          endpoint,
+          keys: { p256dh, auth },
         },
       },
       { upsert: true, new: true }
@@ -53,7 +53,7 @@ router.post("/subscribe", async (req, res) => {
 // 알림 구독 해지
 router.post("/unsubscribe", async (req, res) => {
   try {
-    const { endpoint } = req.body;
+    const endpoint = typeof req.body.endpoint === "string" ? req.body.endpoint.trim() : "";
     if (endpoint) await PushSubscription.deleteOne({ endpoint });
     res.json({ ok: true });
   } catch (err) {

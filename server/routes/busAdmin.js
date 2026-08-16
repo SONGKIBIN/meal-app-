@@ -159,7 +159,9 @@ router.delete("/vehicles/:id", async (req, res) => {
 });
 
 /* ---------------------------- 날짜별 운행 여부 지정 ---------------------------- */
-// 모든 날짜는 기본적으로 운행하는 것으로 처리되며, 여기서 특정 날짜/차량/운행구분만 명시적으로 꺼서(취소해서) 예외로 관리합니다.
+// 평일(공휴일 아님)은 기본적으로 운행하는 것으로 처리되고, 특근일·대체휴무일·토요일·일요일·공휴일은
+// 여기서 명시적으로 켜줘야 운행됩니다(README.md 안내와 동일). 평일도 필요하면 여기서 꺼서(취소해서)
+// 예외로 관리할 수 있습니다.
 
 router.get("/operation", async (req, res) => {
   try {
@@ -203,7 +205,7 @@ router.post("/operation", async (req, res) => {
   }
 });
 
-// 지정을 지우고 기본값(운행함)으로 되돌립니다.
+// 직접 지정을 지우고 그 날짜의 기본값(평일이면 운행함, 주말/공휴일이면 운행 안 함)으로 되돌립니다.
 router.delete("/operation", async (req, res) => {
   try {
     const { date, tripType, vehicleId } = req.body;
@@ -224,7 +226,8 @@ router.delete("/operation", async (req, res) => {
 // employeeId/date/tripType으로 "그날만 취소" 예외 기록을 새로 남깁니다(기본 등록 자체는 유지됨).
 router.delete("/ride", async (req, res) => {
   try {
-    const { rideId, employeeId, date, tripType, vehicleId } = req.body;
+    const { rideId, date, tripType, vehicleId } = req.body;
+    const employeeId = typeof req.body.employeeId === "string" ? req.body.employeeId.trim() : "";
     if (rideId) {
       const ride = await BusRide.findById(rideId);
       if (!ride) return res.status(404).json({ error: "신청 내역을 찾을 수 없습니다." });

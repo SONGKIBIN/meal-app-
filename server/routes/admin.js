@@ -389,8 +389,9 @@ router.get("/reservations/pending", async (req, res) => {
 // 관리자 강제 변경 (마감시간/당일취소 제한을 무시하고 신청 또는 취소 처리)
 router.put("/reservations/override", async (req, res) => {
   try {
-    const { employeeId, date, mealType, status, headcount, guestCount } = req.body;
-    if (!DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
+    const { date, mealType, status, headcount, guestCount } = req.body;
+    const employeeId = typeof req.body.employeeId === "string" ? req.body.employeeId.trim() : "";
+    if (!employeeId || !DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
     const emp = await Employee.findOne({ employeeId });

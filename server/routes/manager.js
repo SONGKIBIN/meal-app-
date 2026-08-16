@@ -142,8 +142,9 @@ router.get("/reservations/pending", async (req, res) => {
 // 담당 부서 소속 직원에 한해, 마감시간과 관계없이 신청/취소를 대신 처리할 수 있습니다.
 router.put("/reservations/override", async (req, res) => {
   try {
-    const { employeeId, date, mealType, status, headcount, guestCount } = req.body;
-    if (!DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
+    const { date, mealType, status, headcount, guestCount } = req.body;
+    const employeeId = typeof req.body.employeeId === "string" ? req.body.employeeId.trim() : "";
+    if (!employeeId || !DATE_RE.test(date || "") || !["lunch", "dinner"].includes(mealType) || !["applied", "cancelled"].includes(status)) {
       return res.status(400).json({ error: "잘못된 요청입니다." });
     }
     const emp = await Employee.findOne({ employeeId });

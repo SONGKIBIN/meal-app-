@@ -353,7 +353,7 @@ const BusAdminUI = {
             <label>${t("selectDate")}</label>
             <input type="date" id="baOpDate" value="${date}">
           </div>
-          <p class="deadline-note">${t("busOperationHelp")}</p>
+          <p class="deadline-note">${t("busOperationHelp")} ${t("busOperationDefaultLabel")}: <strong>${data.defaultOn ? t("busDefaultOn") : t("busDefaultOff")}</strong></p>
           <table class="data-table">
             <thead><tr><th>${t("busVehicleLabel")}</th><th>${t("busTrip_commute")}</th><th>${t("busTrip_regularLeave")}</th><th>${t("busTrip_extendedLeave")}</th></tr></thead>
             <tbody>
