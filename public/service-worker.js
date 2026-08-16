@@ -1,13 +1,17 @@
 // 최소 서비스 워커: PWA 설치(홈 화면에 추가)를 가능하게 하기 위한 용도입니다.
 // 데이터는 항상 최신 상태가 중요하므로 API 응답은 캐시하지 않습니다.
-const CACHE_NAME = "meal-app-shell-v1";
+const CACHE_NAME = "meal-app-shell-v2";
 const SHELL_FILES = [
   "/",
   "/css/style.css",
   "/js/i18n.js",
   "/js/api.js",
-  "/js/app.js",
   "/js/admin.js",
+  "/js/manager.js",
+  "/js/bus.js",
+  "/js/busAdminUi.js",
+  "/js/driverUi.js",
+  "/js/app.js",
 ];
 
 self.addEventListener("install", (event) => {

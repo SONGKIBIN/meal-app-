@@ -213,7 +213,10 @@ const AdminUI = {
             const raw = prompt(t("contractorApplyPrompt"), btn.dataset.target);
             if (raw === null) return;
             const n = parseInt(raw.trim(), 10);
-            if (!Number.isInteger(n) || n < 0) return;
+            if (!Number.isInteger(n) || n < 0) {
+              alert(t("headcountPlaceholder"));
+              return;
+            }
             headcount = n;
           }
           this.overrideSet(employeeId, mealType, "applied", headcount);

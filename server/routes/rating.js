@@ -1,13 +1,13 @@
 const express = require("express");
 const Reservation = require("../models/Reservation");
 const MealRating = require("../models/MealRating");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireActiveEmployee } = require("../middleware/auth");
 const { todayKSTStr, resolveRatingWindow, getRatingWindowTimes } = require("../utils/dateUtil");
 
 const router = express.Router();
 const MEAL_TYPES = ["lunch", "dinner"];
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveEmployee);
 
 // 중식/석식 각각에 대해 "지금 평가할 수 있는지"와 "이미 남긴 평가가 있는지"를 함께 내려줍니다.
 // 평가 시간대가 당일 낮부터 다음날 새벽까지 이어지므로(예: 중식 당일 12:00 ~ 익일 08:00), 지금 이 순간

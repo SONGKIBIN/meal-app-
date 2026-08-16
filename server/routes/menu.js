@@ -5,8 +5,28 @@ const { requireAuth, requireAdmin } = require("../middleware/auth");
 const { getWeekDates, addDays, todayKSTStr } = require("../utils/dateUtil");
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } });
+const ALLOWED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 4 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_IMAGE_MIME_TYPES.includes(file.mimetype)) {
+      return cb(new Error("이미지 파일(PNG/JPEG/WEBP/GIF)만 업로드할 수 있습니다."));
+    }
+    cb(null, true);
+  },
+});
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// multer의 fileFilter/용량 제한 오류를 이 앱의 나머지 API와 동일한 JSON 형식({error: "..."})으로
+// 내려주기 위한 래퍼입니다. 이게 없으면 Express 기본 에러 처리로 넘어가 HTML 응답이 내려가서
+// 프론트엔드가 오류 메시지를 파싱하지 못합니다.
+function handleImageUpload(req, res, next) {
+  upload.single("image")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || "이미지 업로드 중 오류가 발생했습니다." });
+    next();
+  });
+}
 
 // 지난 식단표는 몇 주까지 보관할지 (기본 8주 ≈ 2개월). 그보다 오래된 주는 자동 삭제됩니다.
 const MENU_RETENTION_WEEKS = parseInt(process.env.MENU_RETENTION_WEEKS || "8", 10);
@@ -32,7 +52,7 @@ router.get("/:weekStart", async (req, res) => {
 });
 
 // 식단표 등록/수정 (관리자 전용) - 이미지 업로드 또는 텍스트 메모
-router.post("/", requireAdmin, upload.single("image"), async (req, res) => {
+router.post("/", requireAdmin, handleImageUpload, async (req, res) => {
   try {
     const { weekStart, note } = req.body;
     if (!DATE_RE.test(weekStart || "")) {

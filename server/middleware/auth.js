@@ -16,6 +16,28 @@ function requireAuth(req, res, next) {
   }
 }
 
+// 식사 신청/만족도 평가처럼 재직 여부와 직원 유형(개인/도급)이 직접 인원 집계에 영향을 주는
+// 라우트에서 사용합니다. JWT(로그인 시점, 최대 30일 유효)에 저장된 값만 믿으면, 퇴사 처리(재직 여부
+// 해제)나 개인↔도급 유형 변경이 최대 30일간 반영되지 않을 수 있습니다(예: 도급에서 개인으로 바꾼
+// 계정이 옛 토큰으로 여전히 대규모 인원수를 입력할 수 있음). 매 요청마다 DB에서 다시 확인하고,
+// req.user의 값도 최신 정보로 갱신해 이후 로직이 항상 최신 값을 사용하도록 합니다.
+async function requireActiveEmployee(req, res, next) {
+  try {
+    const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
+    if (!emp || !emp.active) {
+      return res.status(403).json({ error: "재직 정보가 확인되지 않습니다. 관리자에게 문의해주세요.", code: "NOT_ACTIVE" });
+    }
+    req.user.name = emp.name;
+    req.user.department = emp.department;
+    req.user.role = emp.role;
+    req.user.employeeType = emp.employeeType || "individual";
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
+  }
+}
+
 // role=admin 권한은 관리자가 나중에 회수할 수 있으므로, JWT(로그인 시점, 최대 30일 유효)에 저장된
 // role만 믿지 않고 매 요청마다 DB에서 다시 확인합니다(attachManagerScope/attachVehicleScope와 동일한
 // 이유). 이렇게 해야 권한을 회수한 즉시(재로그인 없이도) 접근이 차단됩니다.
@@ -112,6 +134,7 @@ async function attachVehicleScope(req, res, next) {
 
 module.exports = {
   requireAuth,
+  requireActiveEmployee,
   requireAdmin,
   attachManagerScope,
   requireMasterAdmin,

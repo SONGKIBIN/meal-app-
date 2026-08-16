@@ -3,7 +3,7 @@ const Reservation = require("../models/Reservation");
 const Settings = require("../models/Settings");
 const Employee = require("../models/Employee");
 const Holiday = require("../models/Holiday");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireActiveEmployee } = require("../middleware/auth");
 const {
   getWeekDates,
   isApplyAllowed,
@@ -21,7 +21,7 @@ const router = express.Router();
 const MEAL_TYPES = ["lunch", "dinner"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveEmployee);
 
 // 관리자가 설정 화면에서 저장한 마감시간을 가져옵니다 (없으면 환경변수 기본값 사용).
 // 중식/석식은 서로 다른 마감시간을 가질 수 있어 mealType별로 조회합니다.
@@ -43,7 +43,7 @@ async function getDeadline(mealType) {
 router.get("/week", async (req, res) => {
   try {
     const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : undefined;
-    const week = getWeekDates(anchor || new Date().toISOString().slice(0, 10));
+    const week = getWeekDates(anchor || todayKSTStr());
     const lunchDeadline = await getDeadline("lunch");
     const dinnerDeadline = await getDeadline("dinner");
     const rows = await Reservation.find({

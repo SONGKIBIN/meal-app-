@@ -5,7 +5,7 @@ const Vehicle = require("../models/Vehicle");
 const BusRide = require("../models/BusRide");
 const BusDefaultRide = require("../models/BusDefaultRide");
 const Holiday = require("../models/Holiday");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireActiveEmployee } = require("../middleware/auth");
 const { getWeekDates, fixedHolidayLabel, isWeekendDate } = require("../utils/dateUtil");
 const {
   TRIP_TYPES,
@@ -33,7 +33,7 @@ async function cancelMutuallyExclusiveSiblings(employeeId, date, tripType) {
 const router = express.Router();
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveEmployee);
 
 // 이 계정이 통근버스 메뉴를 볼 수 있는지 계산합니다. 전사 공개(busSystemEnabled) 전이라도
 // 마스터 관리자/통근차량 관리 관리자/기사 본인은 미리 확인해볼 수 있습니다.
