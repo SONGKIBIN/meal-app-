@@ -4,7 +4,7 @@ const BusRide = require("../models/BusRide");
 const BusDefaultRide = require("../models/BusDefaultRide");
 const BusDrivingLog = require("../models/BusDrivingLog");
 const { requireAuth, requireBusDriver } = require("../middleware/auth");
-const { getWeekDates, getMonthDates } = require("../utils/dateUtil");
+const { getWeekDates, getMonthDates, todayKSTStr } = require("../utils/dateUtil");
 const { TRIP_TYPES, resolveOperationMap, isDefaultOperatingDayBulk } = require("../utils/busOperation");
 const { computeRiders } = require("../utils/busRiders");
 
@@ -18,7 +18,7 @@ router.use(requireAuth, requireBusDriver);
 // 기사 본인 차량의 오늘(또는 지정 날짜) 운행 정보 + 다른 모든 차량의 운행여부/탑승자 명단(전체 기사 공통 열람)을 함께 내려줍니다.
 router.get("/today", async (req, res) => {
   try {
-    const date = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
+    const date = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : todayKSTStr();
     const vehicles = await Vehicle.find({ active: true }).populate("routeId").sort({ name: 1 }).lean();
     const vehicleIds = vehicles.map((v) => String(v._id));
 
@@ -71,7 +71,7 @@ router.get("/today", async (req, res) => {
 // 읽기 전용으로 보여줍니다. (운행 여부/신청 취소 지정 자체는 통근 차량 관리 관리자/마스터만 가능 - 기사는 확인만 가능)
 router.get("/week-operation", async (req, res) => {
   try {
-    const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : new Date().toISOString().slice(0, 10);
+    const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : todayKSTStr();
     const week = getWeekDates(anchor);
     const vehicles = await Vehicle.find({ active: true }).populate("routeId").sort({ name: 1 }).lean();
     const vehicleIds = vehicles.map((v) => String(v._id));

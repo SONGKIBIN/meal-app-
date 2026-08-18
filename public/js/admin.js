@@ -233,9 +233,11 @@ const AdminUI = {
     const headcountRaw = document.getElementById("overrideHeadcount").value.trim();
     if (!employeeId) return;
     const headcount = headcountRaw ? parseInt(headcountRaw, 10) : undefined;
-    await this.overrideSet(employeeId, mealType, "applied", headcount);
-    document.getElementById("overrideEmpId").value = "";
-    document.getElementById("overrideHeadcount").value = "";
+    await withButtonGuard(document.getElementById("overrideAddBtn"), async () => {
+      await this.overrideSet(employeeId, mealType, "applied", headcount);
+      document.getElementById("overrideEmpId").value = "";
+      document.getElementById("overrideHeadcount").value = "";
+    });
   },
 
   async overrideSet(employeeId, mealType, status, headcount) {
@@ -745,7 +747,7 @@ const AdminUI = {
         document.getElementById("mManagedDeptAddBtn").click();
       }
     });
-    document.getElementById("mSaveBtn").addEventListener("click", async () => {
+    document.getElementById("mSaveBtn").addEventListener("click", async (e) => {
       const employeeId = document.getElementById("mEmpId").value.trim();
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
@@ -753,15 +755,17 @@ const AdminUI = {
       const managedDepartments = [...document.querySelectorAll(".mManagedDeptCheck:checked")].map((cb) => cb.value);
       const employeeType = document.getElementById("mEmployeeType").value;
       const totalHeadcount = document.getElementById("mTotalHeadcount").value.trim();
-      try {
-        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, managedDepartments, employeeType, totalHeadcount });
-        else await API.post("/admin/employees", { employeeId, name, department, role, managedDepartments, employeeType, totalHeadcount });
-        closeModal();
-        showToast(t("save"));
-        this.loadEmployees();
-      } catch (err) {
-        alert(err.message);
-      }
+      await withButtonGuard(e.currentTarget, async () => {
+        try {
+          if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, managedDepartments, employeeType, totalHeadcount });
+          else await API.post("/admin/employees", { employeeId, name, department, role, managedDepartments, employeeType, totalHeadcount });
+          closeModal();
+          showToast(t("save"));
+          this.loadEmployees();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
     });
   },
 
@@ -781,19 +785,21 @@ const AdminUI = {
       alert(t("uploadFile"));
       return;
     }
-    const fd = new FormData();
-    fd.append("file", fileInput.files[0]);
-    const resultEl = document.getElementById("importResult");
-    resultEl.textContent = t("loading");
-    try {
-      const data = await API.request("POST", "/admin/employees/import", fd, { isFormData: true });
-      resultEl.innerHTML = `${t("save")}: +${data.created} / ${t("edit")}: ${data.updated}` +
-        (data.errors && data.errors.length ? "<br>" + data.errors.map(escapeHtml).join("<br>") : "");
-      fileInput.value = "";
-      this.loadEmployees();
-    } catch (err) {
-      resultEl.textContent = err.message;
-    }
+    await withButtonGuard(document.getElementById("importUploadBtn"), async () => {
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      const resultEl = document.getElementById("importResult");
+      resultEl.textContent = t("loading");
+      try {
+        const data = await API.request("POST", "/admin/employees/import", fd, { isFormData: true });
+        resultEl.innerHTML = `${t("save")}: +${data.created} / ${t("edit")}: ${data.updated}` +
+          (data.errors && data.errors.length ? "<br>" + data.errors.map(escapeHtml).join("<br>") : "");
+        fileInput.value = "";
+        this.loadEmployees();
+      } catch (err) {
+        resultEl.textContent = err.message;
+      }
+    });
   },
 
   /* -------------------- 식단표 관리 -------------------- */
@@ -960,15 +966,17 @@ const AdminUI = {
     const date = document.getElementById("holidayDateInput").value;
     const label = document.getElementById("holidayLabelInput").value.trim();
     if (!date) return;
-    try {
-      await API.post("/admin/holidays", { date, label });
-      document.getElementById("holidayDateInput").value = "";
-      document.getElementById("holidayLabelInput").value = "";
-      showToast(t("holidayAdded"));
-      this.loadHolidays();
-    } catch (err) {
-      alert(err.message);
-    }
+    await withButtonGuard(document.getElementById("addHolidayBtn"), async () => {
+      try {
+        await API.post("/admin/holidays", { date, label });
+        document.getElementById("holidayDateInput").value = "";
+        document.getElementById("holidayLabelInput").value = "";
+        showToast(t("holidayAdded"));
+        this.loadHolidays();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   },
 
   async deleteHoliday(id) {
@@ -1037,14 +1045,16 @@ const AdminUI = {
   async postAnnouncement() {
     const message = document.getElementById("announcementInput").value.trim();
     if (!message) return;
-    try {
-      await API.post("/admin/announcements", { message });
-      document.getElementById("announcementInput").value = "";
-      showToast(t("postAnnouncement"));
-      this.loadAnnouncements();
-    } catch (err) {
-      alert(err.message);
-    }
+    await withButtonGuard(document.getElementById("postAnnouncementBtn"), async () => {
+      try {
+        await API.post("/admin/announcements", { message });
+        document.getElementById("announcementInput").value = "";
+        showToast(t("postAnnouncement"));
+        this.loadAnnouncements();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   },
 
   async endAnnouncement(id) {
@@ -1324,14 +1334,14 @@ const AdminUI = {
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("devBusAdminCol")}</th><th>${t("devBusDriverCol")}</th><th>${t("devDriverVehicleCol")}</th><th></th></tr></thead>
           <tbody>
             ${data.employees.map((e) => `
-              <tr data-emp-row="${e.employeeId}">
+              <tr data-emp-row="${escapeHtml(e.employeeId)}">
                 <td>${escapeHtml(e.employeeId)}</td>
                 <td>${escapeHtml(e.name)}</td>
                 <td>${escapeHtml(e.department)}</td>
                 <td><input type="checkbox" class="dev-busadmin-cb" ${e.busAdmin ? "checked" : ""}></td>
                 <td><input type="checkbox" class="dev-busdriver-cb" ${e.busDriver ? "checked" : ""}></td>
                 <td><select class="dev-vehicle-select" ${!vehicles.length ? "disabled" : ""}>${vehicleOptions(e.driverVehicleId)}</select></td>
-                <td><button class="secondary" data-dev-save="${e.employeeId}">${t("save")}</button></td>
+                <td><button class="secondary" data-dev-save="${escapeHtml(e.employeeId)}">${t("save")}</button></td>
               </tr>
             `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`}
           </tbody>

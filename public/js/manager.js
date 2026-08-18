@@ -186,9 +186,11 @@ const ManagerUI = {
     const headcountRaw = document.getElementById("mgrOverrideHeadcount").value.trim();
     if (!employeeId) return;
     const headcount = headcountRaw ? parseInt(headcountRaw, 10) : undefined;
-    await this.overrideSet(employeeId, mealType, "applied", headcount);
-    document.getElementById("mgrOverrideEmpId").value = "";
-    document.getElementById("mgrOverrideHeadcount").value = "";
+    await withButtonGuard(document.getElementById("mgrOverrideAddBtn"), async () => {
+      await this.overrideSet(employeeId, mealType, "applied", headcount);
+      document.getElementById("mgrOverrideEmpId").value = "";
+      document.getElementById("mgrOverrideHeadcount").value = "";
+    });
   },
 
   async overrideSet(employeeId, mealType, status, headcount) {

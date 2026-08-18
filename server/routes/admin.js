@@ -352,7 +352,7 @@ async function computePendingSummary(date) {
     let count = 0;
     for (const e of employees) {
       const appliedHeadcount = map.get(e.employeeId);
-      if (e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) && e.totalHeadcount > 0) {
+      if (e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) && e.totalHeadcount >= 0) {
         const applied = appliedHeadcount ?? 0;
         const shortfall = e.totalHeadcount - applied;
         if (shortfall > 0) {

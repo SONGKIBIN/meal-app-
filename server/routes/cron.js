@@ -119,13 +119,18 @@ router.get("/tick", async (req, res) => {
             const sumHeadcount = (list) => list.reduce((s, r) => s + (r.headcount ?? 1), 0);
             const lunchCount = sumHeadcount(applied.filter((r) => r.mealType === "lunch"));
             const dinnerCount = sumHeadcount(applied.filter((r) => r.mealType === "dinner"));
-            await sendMail({
+            const mailResult = await sendMail({
               to: emails,
               subject: `[식수신청] ${today} 신청 집계`,
               html: `<p><b>${today}</b> 식사 신청 집계입니다.</p><p>중식 ${lunchCount}명 / 석식 ${dinnerCount}명 신청되었습니다.</p>`,
             });
+            if (!mailResult.sent) {
+              console.error("[cron] 일일 집계 이메일 발송 실패:", mailResult.error || mailResult);
+            }
+            results.dailySummaryEmail = mailResult.sent ? "sent" : "error";
+          } else {
+            results.dailySummaryEmail = "skipped";
           }
-          results.dailySummaryEmail = "sent";
         } catch (err) {
           console.error("[cron] 일일 집계 이메일 처리 중 오류:", err.message);
           results.dailySummaryEmail = "error";
@@ -188,9 +193,14 @@ router.get("/tick", async (req, res) => {
                   <tr style="background:#f1f5f9;"><th>코스</th><th>차량</th><th>운행구분</th><th>신청인원</th><th>실제 운행</th><th>실제 인원</th><th>메모</th></tr>
                   ${rowsHtml || '<tr><td colspan="7">기록이 없습니다.</td></tr>'}
                 </table>`;
-              await sendMail({ to: emails, subject: `[통근버스] ${yesterday} 운행일지`, html });
+              const mailResult = await sendMail({ to: emails, subject: `[통근버스] ${yesterday} 운행일지`, html });
+              if (!mailResult.sent) {
+                console.error("[cron] 통근버스 운행일지 이메일 발송 실패:", mailResult.error || mailResult);
+              }
+              results.busDailyLogEmail = mailResult.sent ? "sent" : "error";
+            } else {
+              results.busDailyLogEmail = "skipped";
             }
-            results.busDailyLogEmail = "sent";
           } catch (err) {
             console.error("[cron] 통근버스 운행일지 이메일 처리 중 오류:", err.message);
             results.busDailyLogEmail = "error";

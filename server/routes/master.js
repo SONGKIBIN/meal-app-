@@ -7,6 +7,12 @@ const { requireAuth, requireMasterAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
+// 정규식 특수문자를 이스케이프해서, 검색어를 그대로 정규식으로 사용해도 안전하도록 만듭니다
+// (이스케이프하지 않으면 악의적인 패턴으로 ReDoS를 유발할 수 있습니다).
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // 이 라우터의 모든 엔드포인트는 마스터 관리자(사번 admin, server.js bootstrapAdmin 기준) 전용입니다.
 // 일반 관리자(role=admin)는 requireMasterAdmin에서 403으로 차단되며, 프론트엔드에서도
 // isMasterAdmin이 아니면 "개발자 모드" 메뉴 자체를 렌더링하지 않습니다.
@@ -86,11 +92,8 @@ router.get("/employees", async (req, res) => {
     const q = (req.query.q || "").trim();
     const filter = { active: true };
     if (q) {
-      filter.$or = [
-        { employeeId: new RegExp(q, "i") },
-        { name: new RegExp(q, "i") },
-        { department: new RegExp(q, "i") },
-      ];
+      const re = new RegExp(escapeRegExp(q), "i");
+      filter.$or = [{ employeeId: re }, { name: re }, { department: re }];
     }
     const employees = await Employee.find(filter)
       .select("employeeId name department role busAdmin managedVehicles busDriver driverVehicleId email")

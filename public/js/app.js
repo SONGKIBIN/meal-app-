@@ -1,9 +1,3 @@
-/* 전역 상태 */
-let currentWeekAnchor = new Date().toISOString().slice(0, 10);
-let currentMainTab = "my";
-let deferredInstallPrompt = null;
-let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
-
 /* ---------------------------- 공통 유틸 ---------------------------- */
 
 function escapeHtml(str) {
@@ -24,6 +18,13 @@ function todayStr() {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return kst.toISOString().slice(0, 10);
 }
+
+/* 전역 상태 */
+// 자정~오전 9시(KST) 사이 UTC 날짜와 KST 날짜가 달라지는 문제를 피하기 위해 todayStr()(KST 기준)을 사용합니다.
+let currentWeekAnchor = todayStr();
+let currentMainTab = "my";
+let deferredInstallPrompt = null;
+let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
 
 function applyI18n() {
   document.documentElement.lang = getLang();

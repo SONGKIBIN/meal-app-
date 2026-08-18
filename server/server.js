@@ -1,5 +1,6 @@
 require("dotenv").config();
 const path = require("path");
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -21,6 +22,16 @@ const busRoutes = require("./routes/bus");
 const busAdminRoutes = require("./routes/busAdmin");
 const busDriverRoutes = require("./routes/busDriver");
 const masterRoutes = require("./routes/master");
+
+// Express 4는 async 라우트 핸들러에서 던져진(또는 await하지 않은) 에러를 자동으로 잡아주지 않습니다.
+// 각 라우트가 자체 try/catch로 500을 응답하는 것을 기본으로 하되, 혹시 놓친 곳에서 발생한
+// unhandledRejection이 프로세스 전체를 종료시켜 모든 사용자에게 영향을 주는 것을 막기 위한 안전망입니다.
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] 처리되지 않은 Promise 거부:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[server] 처리되지 않은 예외:", err);
+});
 
 const app = express();
 app.use(cors());
@@ -49,6 +60,14 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
 });
 
+// 라우트 핸들러가 next(err)로 넘긴 에러를 받는 안전망(대부분의 라우트는 자체 try/catch로 500을 응답하지만,
+// 혹시 놓친 곳이 있어도 여기서 한 번 더 막습니다).
+app.use((err, req, res, next) => {
+  console.error("[server] 처리되지 않은 요청 오류:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: "서버 오류가 발생했습니다." });
+});
+
 const PORT = process.env.PORT || 3000;
 
 async function bootstrapAdmin() {
@@ -58,12 +77,19 @@ async function bootstrapAdmin() {
   const existing = await Employee.findOne({ employeeId: id });
   if (!existing) {
     // 마스터 관리자 계정은 통근버스 개발자 모드 접근을 위해 비밀번호가 필요합니다.
-    // MASTER_INITIAL_PASSWORD 환경변수로 초기값을 지정할 수 있고, 지정하지 않으면 기본값이 사용됩니다.
-    // 최초 로그인 후 "개발자 모드" 화면에서 반드시 비밀번호를 변경해주세요.
-    const initialPassword = process.env.MASTER_INITIAL_PASSWORD || "admin1234!";
+    // MASTER_INITIAL_PASSWORD 환경변수로 초기값을 지정할 수 있습니다. 지정하지 않으면 모두가 아는
+    // 고정 기본값 대신 설치할 때마다 새로 임의 생성한 비밀번호를 사용하고, 서버 로그에 한 번만
+    // 출력합니다(추측 가능한 공용 기본 비밀번호로 로그인되는 것을 막기 위함).
+    // 최초 로그인 후 "개발자 모드" 화면에서 반드시 원하는 비밀번호로 변경해주세요.
+    const generatedPassword = crypto.randomBytes(9).toString("base64url");
+    const initialPassword = process.env.MASTER_INITIAL_PASSWORD || generatedPassword;
     const passwordHash = await bcrypt.hash(initialPassword, 10);
     await Employee.create({ employeeId: id, name, department, role: "admin", active: true, passwordHash });
-    console.log(`[bootstrap] 관리자 계정 생성됨: 사번="${id}" 이름="${name}" (초기 비밀번호는 MASTER_INITIAL_PASSWORD 환경변수 또는 기본값을 확인하세요)`);
+    if (process.env.MASTER_INITIAL_PASSWORD) {
+      console.log(`[bootstrap] 관리자 계정 생성됨: 사번="${id}" 이름="${name}" (초기 비밀번호는 MASTER_INITIAL_PASSWORD 환경변수 값을 사용하세요)`);
+    } else {
+      console.log(`[bootstrap] 관리자 계정 생성됨: 사번="${id}" 이름="${name}" 초기 비밀번호="${generatedPassword}" (이 비밀번호는 지금만 출력되니 꼭 기록해두고, 로그인 후 "개발자 모드"에서 변경해주세요)`);
+    }
   } else if (existing.role !== "admin") {
     existing.role = "admin";
     await existing.save();

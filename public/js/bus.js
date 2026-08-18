@@ -12,7 +12,7 @@ const BusUI = {
     const container = document.getElementById("busApplyView");
     container.innerHTML = `<div class="card">${t("loading")}</div>`;
     try {
-      const anchor = anchorDate || this.weekAnchor || new Date().toISOString().slice(0, 10);
+      const anchor = anchorDate || this.weekAnchor || todayStr();
       const data = await API.get(`/bus/week?date=${anchor}`);
       this.weekAnchor = anchor;
       this.weekData = data;
@@ -24,7 +24,7 @@ const BusUI = {
   },
 
   shiftWeek(days) {
-    const d = new Date((this.weekAnchor || new Date().toISOString().slice(0, 10)) + "T00:00:00Z");
+    const d = new Date((this.weekAnchor || todayStr()) + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() + days);
     this.load(d.toISOString().slice(0, 10));
   },
@@ -126,7 +126,7 @@ const BusUI = {
       }
     });
     card.querySelectorAll("[data-default-save]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (e) => {
         const tripType = this.currentTrip;
         const row = document.querySelector("#busDefaultRowContainer [data-default-form]");
         const vehicleId = row.querySelector(".bus-default-vehicle-select").value;
@@ -144,14 +144,16 @@ const BusUI = {
           }
           body.headcount = n;
         }
-        try {
-          await API.post("/bus/default", body);
-          showToast(t("busDefaultSaved"));
-          this.defaultEditMode = false;
-          this.load(this.weekAnchor);
-        } catch (err) {
-          alert(err.message);
-        }
+        await withButtonGuard(e.currentTarget, async () => {
+          try {
+            await API.post("/bus/default", body);
+            showToast(t("busDefaultSaved"));
+            this.defaultEditMode = false;
+            this.load(this.weekAnchor);
+          } catch (err) {
+            alert(err.message);
+          }
+        });
       });
     });
     card.querySelectorAll("[data-default-edit]").forEach((btn) => {
@@ -167,17 +169,19 @@ const BusUI = {
       });
     });
     card.querySelectorAll("[data-default-remove]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (e) => {
         if (!confirm(t("confirmCancel"))) return;
         const tripType = this.currentTrip;
-        try {
-          await API.post("/bus/default", { tripType, vehicleId: "" });
-          showToast(t("cancelSuccess"));
-          this.defaultEditMode = false;
-          this.load(this.weekAnchor);
-        } catch (err) {
-          alert(err.message);
-        }
+        await withButtonGuard(e.currentTarget, async () => {
+          try {
+            await API.post("/bus/default", { tripType, vehicleId: "" });
+            showToast(t("cancelSuccess"));
+            this.defaultEditMode = false;
+            this.load(this.weekAnchor);
+          } catch (err) {
+            alert(err.message);
+          }
+        });
       });
     });
   },
@@ -292,13 +296,15 @@ const BusUI = {
       }
       body.headcount = n;
     }
-    try {
-      await API.post("/bus/ride", body);
-      showToast(t("busApplySuccess"));
-      this.load(this.weekAnchor);
-    } catch (err) {
-      alert(err.message);
-    }
+    await withButtonGuard(e.currentTarget, async () => {
+      try {
+        await API.post("/bus/ride", body);
+        showToast(t("busApplySuccess"));
+        this.load(this.weekAnchor);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   },
 
   // 등록된 "내가 타는 차"를 그대로 사용하는 1클릭 신청 (정시퇴근/연장퇴근 등 - 차량을 다시 고를 필요 없음).
@@ -306,13 +312,15 @@ const BusUI = {
     const row = e.currentTarget.closest(".bus-row");
     const date = row.dataset.date;
     const tripType = row.dataset.trip;
-    try {
-      await API.post("/bus/ride", { date, tripType });
-      showToast(t("busApplySuccess"));
-      this.load(this.weekAnchor);
-    } catch (err) {
-      alert(err.message);
-    }
+    await withButtonGuard(e.currentTarget, async () => {
+      try {
+        await API.post("/bus/ride", { date, tripType });
+        showToast(t("busApplySuccess"));
+        this.load(this.weekAnchor);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   },
 
   async onCancelClick(e) {
@@ -320,12 +328,14 @@ const BusUI = {
     const row = e.currentTarget.closest(".bus-row");
     const date = row.dataset.date;
     const tripType = row.dataset.trip;
-    try {
-      await API.del("/bus/ride", { date, tripType });
-      showToast(t("cancelSuccess"));
-      this.load(this.weekAnchor);
-    } catch (err) {
-      alert(err.message);
-    }
+    await withButtonGuard(e.currentTarget, async () => {
+      try {
+        await API.del("/bus/ride", { date, tripType });
+        showToast(t("cancelSuccess"));
+        this.load(this.weekAnchor);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   },
 };
