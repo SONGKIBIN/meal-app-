@@ -186,11 +186,9 @@ const ManagerUI = {
     const headcountRaw = document.getElementById("mgrOverrideHeadcount").value.trim();
     if (!employeeId) return;
     const headcount = headcountRaw ? parseInt(headcountRaw, 10) : undefined;
-    await withButtonGuard(document.getElementById("mgrOverrideAddBtn"), async () => {
-      await this.overrideSet(employeeId, mealType, "applied", headcount);
-      document.getElementById("mgrOverrideEmpId").value = "";
-      document.getElementById("mgrOverrideHeadcount").value = "";
-    });
+    await this.overrideSet(employeeId, mealType, "applied", headcount);
+    document.getElementById("mgrOverrideEmpId").value = "";
+    document.getElementById("mgrOverrideHeadcount").value = "";
   },
 
   async overrideSet(employeeId, mealType, status, headcount) {
@@ -259,6 +257,13 @@ const ManagerUI = {
           <td>${escapeHtml(e.department)}</td>
           <td>${e.shortfall}</td>
         </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
+      const declinedRows = (list) => list.map((e) => `
+        <tr>
+          <td>${escapeHtml(e.employeeId)}</td>
+          <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
+          <td>${escapeHtml(e.department)}</td>
+          <td>${e.declinedHeadcount}</td>
+        </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
       const listTable = (rowsHtml) => `
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>${t("guestStaffLabel")}</th></tr></thead>
@@ -279,13 +284,19 @@ const ManagerUI = {
           <div class="stat"><div class="num">${data.contractorDinnerCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat"><div class="num">${data.guestDinnerCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat highlight"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
+          <div class="stat"><div class="num">${data.declinedLunchCount}</div><div class="lbl">${t("lunch")} ${t("notEating")}</div></div>
+          <div class="stat"><div class="num">${data.declinedDinnerCount}</div><div class="lbl">${t("dinner")} ${t("notEating")}</div></div>
         </div>
         <h3>${t("lunch")} ${t("applicantListLabel")} (${data.lunchCount})</h3>
         ${listTable(appliedRows(data.lunch))}
+        <h3>${t("lunch")} ${t("notEatingListLabel")} (${data.declinedLunchCount})</h3>
+        ${pendingTable(declinedRows(data.declinedLunch))}
         <h3>${t("lunch")} ${t("nonApplicantListLabel")} (${data.pendingLunchCount})</h3>
         ${pendingTable(pendingRows(data.pendingLunch))}
         <h3>${t("dinner")} ${t("applicantListLabel")} (${data.dinnerCount})</h3>
         ${listTable(appliedRows(data.dinner))}
+        <h3>${t("dinner")} ${t("notEatingListLabel")} (${data.declinedDinnerCount})</h3>
+        ${pendingTable(declinedRows(data.declinedDinner))}
         <h3>${t("dinner")} ${t("nonApplicantListLabel")} (${data.pendingDinnerCount})</h3>
         ${pendingTable(pendingRows(data.pendingDinner))}
       `;

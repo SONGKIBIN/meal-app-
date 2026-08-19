@@ -233,11 +233,9 @@ const AdminUI = {
     const headcountRaw = document.getElementById("overrideHeadcount").value.trim();
     if (!employeeId) return;
     const headcount = headcountRaw ? parseInt(headcountRaw, 10) : undefined;
-    await withButtonGuard(document.getElementById("overrideAddBtn"), async () => {
-      await this.overrideSet(employeeId, mealType, "applied", headcount);
-      document.getElementById("overrideEmpId").value = "";
-      document.getElementById("overrideHeadcount").value = "";
-    });
+    await this.overrideSet(employeeId, mealType, "applied", headcount);
+    document.getElementById("overrideEmpId").value = "";
+    document.getElementById("overrideHeadcount").value = "";
   },
 
   async overrideSet(employeeId, mealType, status, headcount) {
@@ -304,6 +302,13 @@ const AdminUI = {
           <td>${escapeHtml(e.department)}</td>
           <td>${e.shortfall}</td>
         </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
+      const declinedRows = (list) => list.map((e) => `
+        <tr>
+          <td>${escapeHtml(e.employeeId)}</td>
+          <td>${escapeHtml(e.name)}${e.employeeType === "contractor" ? ` <span class="badge admin">${t("contractorBadge")}</span>` : ""}</td>
+          <td>${escapeHtml(e.department)}</td>
+          <td>${e.declinedHeadcount}</td>
+        </tr>`).join("") || `<tr><td colspan="4">${t("noData")}</td></tr>`;
       const listTable = (rowsHtml) => `
         <div class="table-wrap"><table class="data-table">
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("headcountLabel")}</th><th>${t("guestStaffLabel")}</th></tr></thead>
@@ -324,13 +329,19 @@ const AdminUI = {
           <div class="stat"><div class="num">${data.contractorDinnerCount}</div><div class="lbl">${t("contractorStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat"><div class="num">${data.guestDinnerCount}</div><div class="lbl">${t("guestStaffLabel")} ${t("dinner")}</div></div>
           <div class="stat highlight"><div class="num">${data.dinnerCount}</div><div class="lbl">${t("dinner")} ${t("total")}</div></div>
+          <div class="stat"><div class="num">${data.declinedLunchCount}</div><div class="lbl">${t("lunch")} ${t("notEating")}</div></div>
+          <div class="stat"><div class="num">${data.declinedDinnerCount}</div><div class="lbl">${t("dinner")} ${t("notEating")}</div></div>
         </div>
         <h3>${t("lunch")} ${t("applicantListLabel")} (${data.lunchCount})</h3>
         ${listTable(appliedRows(data.lunch))}
+        <h3>${t("lunch")} ${t("notEatingListLabel")} (${data.declinedLunchCount})</h3>
+        ${pendingTable(declinedRows(data.declinedLunch))}
         <h3>${t("lunch")} ${t("nonApplicantListLabel")} (${data.pendingLunchCount})</h3>
         ${pendingTable(pendingRows(data.pendingLunch))}
         <h3>${t("dinner")} ${t("applicantListLabel")} (${data.dinnerCount})</h3>
         ${listTable(appliedRows(data.dinner))}
+        <h3>${t("dinner")} ${t("notEatingListLabel")} (${data.declinedDinnerCount})</h3>
+        ${pendingTable(declinedRows(data.declinedDinner))}
         <h3>${t("dinner")} ${t("nonApplicantListLabel")} (${data.pendingDinnerCount})</h3>
         ${pendingTable(pendingRows(data.pendingDinner))}
       `;
@@ -747,7 +758,7 @@ const AdminUI = {
         document.getElementById("mManagedDeptAddBtn").click();
       }
     });
-    document.getElementById("mSaveBtn").addEventListener("click", async (e) => {
+    document.getElementById("mSaveBtn").addEventListener("click", async () => {
       const employeeId = document.getElementById("mEmpId").value.trim();
       const name = document.getElementById("mName").value.trim();
       const department = document.getElementById("mDept").value.trim();
@@ -755,17 +766,15 @@ const AdminUI = {
       const managedDepartments = [...document.querySelectorAll(".mManagedDeptCheck:checked")].map((cb) => cb.value);
       const employeeType = document.getElementById("mEmployeeType").value;
       const totalHeadcount = document.getElementById("mTotalHeadcount").value.trim();
-      await withButtonGuard(e.currentTarget, async () => {
-        try {
-          if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, managedDepartments, employeeType, totalHeadcount });
-          else await API.post("/admin/employees", { employeeId, name, department, role, managedDepartments, employeeType, totalHeadcount });
-          closeModal();
-          showToast(t("save"));
-          this.loadEmployees();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
+      try {
+        if (emp) await API.put(`/admin/employees/${emp._id}`, { name, department, role, managedDepartments, employeeType, totalHeadcount });
+        else await API.post("/admin/employees", { employeeId, name, department, role, managedDepartments, employeeType, totalHeadcount });
+        closeModal();
+        showToast(t("save"));
+        this.loadEmployees();
+      } catch (err) {
+        alert(err.message);
+      }
     });
   },
 
@@ -785,21 +794,19 @@ const AdminUI = {
       alert(t("uploadFile"));
       return;
     }
-    await withButtonGuard(document.getElementById("importUploadBtn"), async () => {
-      const fd = new FormData();
-      fd.append("file", fileInput.files[0]);
-      const resultEl = document.getElementById("importResult");
-      resultEl.textContent = t("loading");
-      try {
-        const data = await API.request("POST", "/admin/employees/import", fd, { isFormData: true });
-        resultEl.innerHTML = `${t("save")}: +${data.created} / ${t("edit")}: ${data.updated}` +
-          (data.errors && data.errors.length ? "<br>" + data.errors.map(escapeHtml).join("<br>") : "");
-        fileInput.value = "";
-        this.loadEmployees();
-      } catch (err) {
-        resultEl.textContent = err.message;
-      }
-    });
+    const fd = new FormData();
+    fd.append("file", fileInput.files[0]);
+    const resultEl = document.getElementById("importResult");
+    resultEl.textContent = t("loading");
+    try {
+      const data = await API.request("POST", "/admin/employees/import", fd, { isFormData: true });
+      resultEl.innerHTML = `${t("save")}: +${data.created} / ${t("edit")}: ${data.updated}` +
+        (data.errors && data.errors.length ? "<br>" + data.errors.map(escapeHtml).join("<br>") : "");
+      fileInput.value = "";
+      this.loadEmployees();
+    } catch (err) {
+      resultEl.textContent = err.message;
+    }
   },
 
   /* -------------------- 식단표 관리 -------------------- */
@@ -966,17 +973,15 @@ const AdminUI = {
     const date = document.getElementById("holidayDateInput").value;
     const label = document.getElementById("holidayLabelInput").value.trim();
     if (!date) return;
-    await withButtonGuard(document.getElementById("addHolidayBtn"), async () => {
-      try {
-        await API.post("/admin/holidays", { date, label });
-        document.getElementById("holidayDateInput").value = "";
-        document.getElementById("holidayLabelInput").value = "";
-        showToast(t("holidayAdded"));
-        this.loadHolidays();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
+    try {
+      await API.post("/admin/holidays", { date, label });
+      document.getElementById("holidayDateInput").value = "";
+      document.getElementById("holidayLabelInput").value = "";
+      showToast(t("holidayAdded"));
+      this.loadHolidays();
+    } catch (err) {
+      alert(err.message);
+    }
   },
 
   async deleteHoliday(id) {
@@ -1045,16 +1050,14 @@ const AdminUI = {
   async postAnnouncement() {
     const message = document.getElementById("announcementInput").value.trim();
     if (!message) return;
-    await withButtonGuard(document.getElementById("postAnnouncementBtn"), async () => {
-      try {
-        await API.post("/admin/announcements", { message });
-        document.getElementById("announcementInput").value = "";
-        showToast(t("postAnnouncement"));
-        this.loadAnnouncements();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
+    try {
+      await API.post("/admin/announcements", { message });
+      document.getElementById("announcementInput").value = "";
+      showToast(t("postAnnouncement"));
+      this.loadAnnouncements();
+    } catch (err) {
+      alert(err.message);
+    }
   },
 
   async endAnnouncement(id) {
@@ -1082,6 +1085,17 @@ const AdminUI = {
 
   starText(stars) {
     return "★".repeat(stars) + "☆".repeat(5 - stars);
+  },
+
+  // 만족도 상세 목록에서 사유(내용)를 클릭하면, 그 평가를 정확히 언제 등록했는지(등록 일시) 알려줍니다.
+  bindRatingReasonClicks(container) {
+    container.querySelectorAll(".rating-reason-cell").forEach((cell) => {
+      cell.addEventListener("click", () => {
+        const created = cell.dataset.created;
+        const label = created ? new Date(created).toLocaleString() : t("satisfactionDateUnknown");
+        alert(`${t("satisfactionRegisteredAt")}: ${label}`);
+      });
+    });
   },
 
   deptRatingRowsHtml(byDepartment) {
@@ -1168,7 +1182,7 @@ const AdminUI = {
           <td>${escapeHtml(r.department)}</td>
           <td title="${r.stars}">${this.starText(r.stars)}</td>
           <td>${r.score}</td>
-          <td style="text-align:left;">${escapeHtml(r.reason)}</td>
+          <td style="text-align:left;cursor:pointer;text-decoration:underline dotted;" class="rating-reason-cell" data-created="${r.createdAt || ""}" title="${t("satisfactionClickForDate")}">${escapeHtml(r.reason)}</td>
         </tr>`).join("");
       body.innerHTML = `
         <div class="summary-cards">
@@ -1185,6 +1199,7 @@ const AdminUI = {
           <tbody>${detailRows || `<tr><td colspan="7">${t("noData")}</td></tr>`}</tbody>
         </table></div>
       `;
+      this.bindRatingReasonClicks(body);
     } catch (err) {
       body.textContent = err.message;
     }
@@ -1215,6 +1230,17 @@ const AdminUI = {
     const body = document.getElementById("satMonthlyBody");
     try {
       const data = await API.get(`/admin/ratings/summary/monthly?month=${this.satisfactionMonth}`);
+      const detailRows = (data.ratings || []).map((r) => `
+        <tr>
+          <td>${escapeHtml(r.date)}</td>
+          <td>${r.mealType === "lunch" ? t("lunch") : t("dinner")}</td>
+          <td>${escapeHtml(r.employeeId)}</td>
+          <td>${escapeHtml(r.employeeName)}</td>
+          <td>${escapeHtml(r.department)}</td>
+          <td title="${r.stars}">${this.starText(r.stars)}</td>
+          <td>${r.score}</td>
+          <td style="text-align:left;cursor:pointer;text-decoration:underline dotted;" class="rating-reason-cell" data-created="${r.createdAt || ""}" title="${t("satisfactionClickForDate")}">${escapeHtml(r.reason)}</td>
+        </tr>`).join("");
       body.innerHTML = `
         <div class="summary-cards">
           <div class="stat"><div class="num">${data.lunchOverall.count}</div><div class="lbl">${t("lunch")} ${t("satisfactionRespondents")}</div></div>
@@ -1224,7 +1250,13 @@ const AdminUI = {
         </div>
         <h3>${t("satisfactionByDept")}</h3>
         ${this.deptRatingTableHtml(data.byDepartment)}
+        <h3>${t("satisfactionDetailList")}</h3>
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>${t("selectDate")}</th><th></th><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("satisfactionStars")}</th><th>${t("satisfactionScore")}</th><th>${t("satisfactionReason")}</th></tr></thead>
+          <tbody>${detailRows || `<tr><td colspan="8">${t("noData")}</td></tr>`}</tbody>
+        </table></div>
       `;
+      this.bindRatingReasonClicks(body);
     } catch (err) {
       body.textContent = err.message;
     }
@@ -1334,14 +1366,14 @@ const AdminUI = {
           <thead><tr><th>${t("employeeId")}</th><th>${t("name")}</th><th>${t("department")}</th><th>${t("devBusAdminCol")}</th><th>${t("devBusDriverCol")}</th><th>${t("devDriverVehicleCol")}</th><th></th></tr></thead>
           <tbody>
             ${data.employees.map((e) => `
-              <tr data-emp-row="${escapeHtml(e.employeeId)}">
+              <tr data-emp-row="${e.employeeId}">
                 <td>${escapeHtml(e.employeeId)}</td>
                 <td>${escapeHtml(e.name)}</td>
                 <td>${escapeHtml(e.department)}</td>
                 <td><input type="checkbox" class="dev-busadmin-cb" ${e.busAdmin ? "checked" : ""}></td>
                 <td><input type="checkbox" class="dev-busdriver-cb" ${e.busDriver ? "checked" : ""}></td>
                 <td><select class="dev-vehicle-select" ${!vehicles.length ? "disabled" : ""}>${vehicleOptions(e.driverVehicleId)}</select></td>
-                <td><button class="secondary" data-dev-save="${escapeHtml(e.employeeId)}">${t("save")}</button></td>
+                <td><button class="secondary" data-dev-save="${e.employeeId}">${t("save")}</button></td>
               </tr>
             `).join("") || `<tr><td colspan="7">${t("noData")}</td></tr>`}
           </tbody>

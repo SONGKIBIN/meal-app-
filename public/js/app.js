@@ -1,3 +1,9 @@
+/* 전역 상태 */
+let currentWeekAnchor = new Date().toISOString().slice(0, 10);
+let currentMainTab = "my";
+let deferredInstallPrompt = null;
+let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
+
 /* ---------------------------- 공통 유틸 ---------------------------- */
 
 function escapeHtml(str) {
@@ -18,13 +24,6 @@ function todayStr() {
   const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return kst.toISOString().slice(0, 10);
 }
-
-/* 전역 상태 */
-// 자정~오전 9시(KST) 사이 UTC 날짜와 KST 날짜가 달라지는 문제를 피하기 위해 todayStr()(KST 기준)을 사용합니다.
-let currentWeekAnchor = todayStr();
-let currentMainTab = "my";
-let deferredInstallPrompt = null;
-let currentContractorTotalHeadcount = null; // 도급(단체) 계정의 등록된 총원(TO), 화면 표시용
 
 function applyI18n() {
   document.documentElement.lang = getLang();
@@ -678,8 +677,12 @@ function renderWeekGrid(days) {
       <div class="day-cell ${isToday ? "today" : ""} ${dayTypeCls}">
         <div class="date-label">${day.date.slice(5)}</div>
         <div class="weekday-label">${t(wd)}${holidayTag}</div>
-        ${contractor ? renderHeadcountRow(day.date, "lunch", day.lunch) : renderMealButton(day.date, "lunch", day.lunch) + renderGuestRow(day.date, "lunch", day.lunch)}
-        ${contractor ? renderHeadcountRow(day.date, "dinner", day.dinner) : renderMealButton(day.date, "dinner", day.dinner) + renderGuestRow(day.date, "dinner", day.dinner)}
+        ${contractor
+          ? renderHeadcountRow(day.date, "lunch", day.lunch) + renderDeclineHeadcountRow(day.date, "lunch", day.lunch)
+          : renderMealButton(day.date, "lunch", day.lunch) + renderDeclineButtonRow(day.date, "lunch", day.lunch) + renderGuestRow(day.date, "lunch", day.lunch)}
+        ${contractor
+          ? renderHeadcountRow(day.date, "dinner", day.dinner) + renderDeclineHeadcountRow(day.date, "dinner", day.dinner)
+          : renderMealButton(day.date, "dinner", day.dinner) + renderDeclineButtonRow(day.date, "dinner", day.dinner) + renderGuestRow(day.date, "dinner", day.dinner)}
       </div>
     `;
   }).join("");
@@ -689,6 +692,9 @@ function renderWeekGrid(days) {
   });
   grid.querySelectorAll("button[data-headcount-save]").forEach((btn) => {
     btn.addEventListener("click", onHeadcountSaveClick);
+  });
+  grid.querySelectorAll("button[data-decline-headcount-save]").forEach((btn) => {
+    btn.addEventListener("click", onDeclineHeadcountSaveClick);
   });
   grid.querySelectorAll("button[data-guest-save]").forEach((btn) => {
     btn.addEventListener("click", onGuestSaveClick);
@@ -739,7 +745,7 @@ function renderHeadcountRow(date, mealType, info) {
   const editable = info.canApply; // 신청 가능 여부와 취소(변경) 가능 여부가 동일한 규칙이라 하나로 사용합니다.
   const value = info.headcount ? info.headcount : "";
   const breakdown = currentContractorTotalHeadcount !== null
-    ? `<div class="deadline-note" style="width:100%;margin:2px 0 0;">${t("appliedOfTotal", info.headcount, currentContractorTotalHeadcount)} · ${t("notAppliedCount")} ${info.notApplied ?? Math.max(currentContractorTotalHeadcount - info.headcount, 0)}</div>`
+    ? `<div class="deadline-note" style="width:100%;margin:2px 0 0;">${t("appliedOfTotal", info.headcount, currentContractorTotalHeadcount)} · ${t("notEatingCount")} ${info.declinedHeadcount || 0} · ${t("notAppliedCount")} ${info.notApplied ?? Math.max(currentContractorTotalHeadcount - info.headcount - (info.declinedHeadcount || 0), 0)}</div>`
     : "";
   return `
     <div class="meal-row headcount-row" data-date="${date}" data-meal="${mealType}">
@@ -779,6 +785,49 @@ async function onHeadcountSaveClick(e) {
   }
 }
 
+// 도급회사(단체) 계정용: "안 먹는 인원수"를 신청 인원수와 별개로 입력합니다. 총원(TO) 중 일부는 신청,
+// 일부는 안 먹음으로 동시에 등록될 수 있습니다(0 입력 시 안 먹음 등록 취소).
+function renderDeclineHeadcountRow(date, mealType, info) {
+  const mealLabel = t(mealType);
+  const editable = info.canApply;
+  const value = info.declinedHeadcount ? info.declinedHeadcount : "";
+  return `
+    <div class="meal-row decline-headcount-row" data-date="${date}" data-meal="${mealType}">
+      <div class="meal-name">${mealLabel} ${t("notEating")}</div>
+      <input type="number" min="0" max="9999" class="decline-headcount-input" placeholder="${t("notEatingHeadcountPlaceholder")}" value="${value}" ${editable ? "" : "disabled"}>
+      <button data-decline-headcount-save ${editable ? "" : "disabled"}>${t("saveHeadcount")}</button>
+    </div>
+  `;
+}
+
+async function onDeclineHeadcountSaveClick(e) {
+  const btn = e.currentTarget;
+  const row = btn.closest(".decline-headcount-row");
+  const date = row.dataset.date;
+  const meal = row.dataset.meal;
+  const input = row.querySelector(".decline-headcount-input");
+  const raw = input.value.trim();
+  const n = raw === "" ? 0 : parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 0 || n > 9999) {
+    alert(t("notEatingHeadcountPlaceholder"));
+    return;
+  }
+  btn.disabled = true;
+  try {
+    if (n === 0) {
+      await API.del("/reservations/decline", { date, mealType: meal });
+      showToast(t("cancelSuccess"));
+    } else {
+      await API.put("/reservations/decline", { date, mealType: meal, headcount: n });
+      showToast(t("headcountSaved"));
+    }
+    loadWeek(currentWeekAnchor);
+  } catch (err) {
+    alert(err.message);
+    loadWeek(currentWeekAnchor);
+  }
+}
+
 function renderMealButton(date, mealType, info) {
   const mealLabel = t(mealType);
   let btnLabel, action, disabled = false, cls = "";
@@ -804,12 +853,40 @@ function renderMealButton(date, mealType, info) {
   `;
 }
 
+// 개인 직원용 "안 먹어요" 버튼. 신청 버튼과 마찬가지로 눌러서 등록하고, 등록된 상태에서는
+// 같은 버튼이 "취소"로 바뀝니다. 신청과는 서로 배타적이라(같은 사람이 동시에 먹고 안 먹을 수 없음),
+// 신청을 누르면 이 표시가 자동으로 사라지고 반대도 마찬가지입니다.
+function renderDeclineButtonRow(date, mealType, info) {
+  const mealLabel = t(mealType);
+  let btnLabel, action, disabled = false, cls = "";
+  if (info.declined) {
+    cls = "declined";
+    if (info.canCancel) {
+      btnLabel = `${mealLabel} ${t("notEating")} (${t("cancel")})`;
+      action = "decline-cancel";
+    } else {
+      btnLabel = `${mealLabel} ${t("notEating")}`;
+      action = "decline-cancel";
+      disabled = true;
+    }
+  } else {
+    btnLabel = `${mealLabel} ${t("notEating")}`;
+    action = "decline";
+    if (!info.canApply) disabled = true;
+  }
+  return `
+    <div class="meal-row">
+      <button data-action="${action}" data-date="${date}" data-meal="${mealType}" class="${cls}" ${disabled ? "disabled" : ""}>${btnLabel}</button>
+    </div>
+  `;
+}
+
 async function onMealButtonClick(e) {
   const btn = e.currentTarget;
   const date = btn.dataset.date;
   const meal = btn.dataset.meal;
   const action = btn.dataset.action;
-  if (action === "cancel") {
+  if (action === "cancel" || action === "decline-cancel") {
     if (!confirm(t("confirmCancel"))) return;
   }
   btn.disabled = true;
@@ -817,8 +894,14 @@ async function onMealButtonClick(e) {
     if (action === "apply") {
       await API.post("/reservations", { date, mealType: meal });
       showToast(t("applySuccess"));
-    } else {
+    } else if (action === "cancel") {
       await API.del("/reservations", { date, mealType: meal });
+      showToast(t("cancelSuccess"));
+    } else if (action === "decline") {
+      await API.put("/reservations/decline", { date, mealType: meal });
+      showToast(t("notEatingSaved"));
+    } else if (action === "decline-cancel") {
+      await API.del("/reservations/decline", { date, mealType: meal });
       showToast(t("cancelSuccess"));
     }
     loadWeek(currentWeekAnchor);

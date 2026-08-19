@@ -1,15 +1,3 @@
-// 저장/신청/취소 버튼의 중복 클릭(더블 클릭)으로 같은 요청이 두 번 전송되는 것을 막기 위한 유틸입니다.
-// 요청이 끝나는 즉시(성공/실패 모두) 버튼을 다시 활성화합니다.
-async function withButtonGuard(btn, fn) {
-  if (btn && btn.disabled) return;
-  if (btn) btn.disabled = true;
-  try {
-    return await fn();
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
 const API = {
   base: "/api",
   getToken() {

@@ -46,15 +46,22 @@ router.get("/week", async (req, res) => {
     const week = getWeekDates(anchor || todayKSTStr());
     const lunchDeadline = await getDeadline("lunch");
     const dinnerDeadline = await getDeadline("dinner");
+    // 신청(status: applied)한 끼니뿐 아니라, 명시적으로 "안 먹어요"를 선택해 declinedHeadcount가
+    // 등록된 끼니도 함께 가져와야 화면에 "안 먹어요" 상태를 표시할 수 있습니다.
     const rows = await Reservation.find({
       employeeId: req.user.employeeId,
       date: { $in: week },
-      status: "applied",
+      $or: [{ status: "applied" }, { declinedHeadcount: { $gt: 0 } }],
     }).lean();
 
     const map = {};
     for (const r of rows) {
-      map[`${r.date}_${r.mealType}`] = { headcount: r.headcount ?? 1, guestCount: r.guestCount ?? 0 };
+      map[`${r.date}_${r.mealType}`] = {
+        applied: r.status === "applied",
+        headcount: r.headcount ?? 1,
+        guestCount: r.guestCount ?? 0,
+        declinedHeadcount: r.declinedHeadcount || 0,
+      };
     }
 
     // 주말(토/일)과 등록된 공휴일(고정 양력 공휴일 + 관리자가 등록한 공휴일)을 화면에서 빨간색으로 구분해 보여주기 위한 정보입니다.
@@ -84,8 +91,10 @@ router.get("/week", async (req, res) => {
       const canCancelDinner = isCancelAllowed(date, new Date(), dinnerDeadline);
       const lunchInfo = map[`${date}_lunch`];
       const dinnerInfo = map[`${date}_dinner`];
-      const lunchHeadcount = lunchInfo ? lunchInfo.headcount : 0;
-      const dinnerHeadcount = dinnerInfo ? dinnerInfo.headcount : 0;
+      const lunchHeadcount = lunchInfo && lunchInfo.applied ? lunchInfo.headcount : 0;
+      const dinnerHeadcount = dinnerInfo && dinnerInfo.applied ? dinnerInfo.headcount : 0;
+      const lunchDeclined = lunchInfo ? lunchInfo.declinedHeadcount : 0;
+      const dinnerDeclined = dinnerInfo ? dinnerInfo.declinedHeadcount : 0;
 
       const customLabel = customHolidayMap.get(date);
       const fixedLabel = fixedHolidayLabel(date);
@@ -97,20 +106,24 @@ router.get("/week", async (req, res) => {
         dayType,
         holidayLabel: holidayLabel || "",
         lunch: {
-          applied: !!lunchInfo,
+          applied: !!lunchInfo && lunchInfo.applied,
           headcount: lunchHeadcount,
-          guestCount: lunchInfo ? lunchInfo.guestCount : 0,
+          guestCount: lunchInfo && lunchInfo.applied ? lunchInfo.guestCount : 0,
+          declined: lunchDeclined > 0,
+          declinedHeadcount: lunchDeclined,
           canApply: canApplyLunch,
           canCancel: canCancelLunch,
-          notApplied: totalHeadcount !== null ? Math.max(totalHeadcount - lunchHeadcount, 0) : null,
+          notApplied: totalHeadcount !== null ? Math.max(totalHeadcount - lunchHeadcount - lunchDeclined, 0) : null,
         },
         dinner: {
-          applied: !!dinnerInfo,
+          applied: !!dinnerInfo && dinnerInfo.applied,
           headcount: dinnerHeadcount,
-          guestCount: dinnerInfo ? dinnerInfo.guestCount : 0,
+          guestCount: dinnerInfo && dinnerInfo.applied ? dinnerInfo.guestCount : 0,
+          declined: dinnerDeclined > 0,
+          declinedHeadcount: dinnerDeclined,
           canApply: canApplyDinner,
           canCancel: canCancelDinner,
-          notApplied: totalHeadcount !== null ? Math.max(totalHeadcount - dinnerHeadcount, 0) : null,
+          notApplied: totalHeadcount !== null ? Math.max(totalHeadcount - dinnerHeadcount - dinnerDeclined, 0) : null,
         },
       };
     });
@@ -147,17 +160,21 @@ router.post("/", async (req, res) => {
       headcount = n;
     }
 
+    const set = {
+      status: "applied",
+      employeeName: req.user.name,
+      department: req.user.department,
+      modifiedByAdmin: false,
+      headcount,
+    };
+    // 개인 직원은 한 사람이므로 "신청"과 "안 먹어요"가 동시에 성립할 수 없어, 신청하면 안 먹어요 표시를
+    // 자동으로 해제합니다. 도급(단체) 계정은 총원 중 일부는 신청/일부는 안 먹음으로 동시에 존재할 수
+    // 있으므로(예: 40명 중 35명 신청 + 5명 안 먹음) 건드리지 않습니다.
+    if (!isContractor) set.declinedHeadcount = 0;
+
     await Reservation.findOneAndUpdate(
       { employeeId: req.user.employeeId, date, mealType },
-      {
-        $set: {
-          status: "applied",
-          employeeName: req.user.name,
-          department: req.user.department,
-          modifiedByAdmin: false,
-          headcount,
-        },
-      },
+      { $set: set },
       { upsert: true, new: true }
     );
     res.json({ ok: true, headcount });
@@ -187,6 +204,92 @@ router.delete("/", async (req, res) => {
     await Reservation.findOneAndUpdate(
       { employeeId: req.user.employeeId, date, mealType },
       { $set: { status: "cancelled", modifiedByAdmin: false, guestCount: 0 } }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
+  }
+});
+
+// "안 먹어요" 등록. 개인 직원은 본인(1명)을, 도급(단체) 계정은 안 먹는 인원수를 직접 입력해 등록합니다.
+// 신청(apply)과 마찬가지로 마감시간 전까지만 결정할 수 있습니다.
+router.put("/decline", async (req, res) => {
+  try {
+    const { date, mealType } = req.body;
+    if (!DATE_RE.test(date) || !MEAL_TYPES.includes(mealType)) {
+      return res.status(400).json({ error: "잘못된 요청입니다." });
+    }
+    const deadline = await getDeadline(mealType);
+    if (!isApplyAllowed(date, new Date(), deadline)) {
+      const mealLabel = mealType === "lunch" ? "중식" : "석식";
+      return res.status(403).json({
+        error: `등록 가능 시간이 지났습니다. (당일 ${mealLabel}은 ${deadline.hour}시 ${String(deadline.minute).padStart(2, "0")}분까지 가능)`,
+      });
+    }
+
+    const isContractor = req.user.employeeType === "contractor";
+    let declinedHeadcount = 1;
+    if (isContractor) {
+      const n = parseInt(req.body.headcount, 10);
+      if (!Number.isInteger(n) || n < 1 || n > 9999) {
+        return res.status(400).json({ error: "인원수는 1 이상 9999 이하의 숫자로 입력해주세요." });
+      }
+      declinedHeadcount = n;
+    }
+
+    const set = {
+      employeeName: req.user.name,
+      department: req.user.department,
+      declinedHeadcount,
+    };
+    // 개인 직원은 한 사람이므로 "안 먹어요"를 선택하면 기존 신청을 자동으로 취소합니다.
+    // 도급(단체) 계정은 신청 인원과 안 먹는 인원이 별개의 숫자로 동시에 존재할 수 있으므로 건드리지 않습니다.
+    if (!isContractor) {
+      set.status = "cancelled";
+      set.modifiedByAdmin = false;
+      set.guestCount = 0;
+    }
+
+    // 도급(단체) 계정이 신청 없이 "안 먹는 인원"만 먼저 등록하는 경우, 새로 만들어지는 문서의
+    // status 기본값이 스키마상 "applied"라서 신청한 것처럼 잘못 집계되지 않도록 최초 생성 시에만
+    // status/headcount 초기값을 명시적으로 지정합니다(이미 있는 문서는 건드리지 않음).
+    const updateOps = { $set: set };
+    if (isContractor) {
+      updateOps.$setOnInsert = { status: "cancelled", headcount: 0 };
+    }
+    await Reservation.findOneAndUpdate(
+      { employeeId: req.user.employeeId, date, mealType },
+      updateOps,
+      { upsert: true, new: true }
+    );
+    res.json({ ok: true, declinedHeadcount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "서버 오류가 발생했습니다." });
+  }
+});
+
+// "안 먹어요" 취소 (미정 상태로 되돌림). 신청(headcount)에는 영향을 주지 않습니다.
+router.delete("/decline", async (req, res) => {
+  try {
+    const { date, mealType } = req.body;
+    if (!DATE_RE.test(date) || !MEAL_TYPES.includes(mealType)) {
+      return res.status(400).json({ error: "잘못된 요청입니다." });
+    }
+    const deadline = await getDeadline(mealType);
+    if (!isCancelAllowed(date, new Date(), deadline)) {
+      const today = todayKSTStr();
+      const mealLabel = mealType === "lunch" ? "중식" : "석식";
+      const message =
+        date < today
+          ? "지난 날짜의 등록은 취소할 수 없습니다."
+          : `취소 가능 시간이 지났습니다. (당일 ${mealLabel} 취소는 ${deadline.hour}시 ${String(deadline.minute).padStart(2, "0")}분까지 가능하며, 이후에는 관리자에게 문의해주세요.)`;
+      return res.status(403).json({ error: message });
+    }
+    await Reservation.findOneAndUpdate(
+      { employeeId: req.user.employeeId, date, mealType },
+      { $set: { declinedHeadcount: 0 } }
     );
     res.json({ ok: true });
   } catch (err) {

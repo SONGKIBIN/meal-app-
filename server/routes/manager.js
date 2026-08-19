@@ -93,42 +93,78 @@ async function computeScopedPendingSummary(date, scope) {
   const employees = scope.length
     ? await Employee.find({ active: true, department: { $in: scope } }).sort({ department: 1, name: 1 }).lean()
     : [];
-  const applied = employees.length ? await Reservation.find({ date, status: "applied" }).lean() : [];
+  // 신청(status: applied)한 사람뿐 아니라, 명시적으로 "안 먹어요"를 등록한(declinedHeadcount > 0)
+  // 사람도 함께 가져와야 "안 먹어요"를 선택한 사람이 "미신청(미정)" 명단에 잘못 섞이지 않습니다.
+  const rows = employees.length ? await Reservation.find({ date, $or: [{ status: "applied" }, { declinedHeadcount: { $gt: 0 } }] }).lean() : [];
   const appliedLunchMap = new Map();
   const appliedDinnerMap = new Map();
-  for (const r of applied) {
-    const map = r.mealType === "lunch" ? appliedLunchMap : appliedDinnerMap;
-    map.set(r.employeeId, r.headcount ?? 1);
+  const declinedLunchMap = new Map();
+  const declinedDinnerMap = new Map();
+  for (const r of rows) {
+    if (r.status === "applied") {
+      const map = r.mealType === "lunch" ? appliedLunchMap : appliedDinnerMap;
+      map.set(r.employeeId, r.headcount ?? 1);
+    }
+    if (r.declinedHeadcount > 0) {
+      const map = r.mealType === "lunch" ? declinedLunchMap : declinedDinnerMap;
+      map.set(r.employeeId, r.declinedHeadcount);
+    }
   }
 
-  function build(map) {
+  // 도급(단체) 계정은 총원 중 일부만 신청/일부만 안 먹음으로 등록했을 수 있어(둘 다 부분적으로
+  // 존재 가능), 안 먹어요를 등록했다고 해서 그 계정 전체를 미신청 계산에서 제외하면 안 됩니다.
+  // 개인 직원은 한 사람이므로 안 먹어요를 등록했으면 더 이상 미정이 아니라 완전히 제외합니다.
+  function build(appliedMap, declinedMap) {
     const list = [];
     let count = 0;
     for (const e of employees) {
-      const appliedHeadcount = map.get(e.employeeId);
-      if (e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) && e.totalHeadcount >= 0) {
+      const appliedHeadcount = appliedMap.get(e.employeeId);
+      const declinedHeadcount = declinedMap.get(e.employeeId) ?? 0;
+      if (e.employeeType === "contractor" && Number.isInteger(e.totalHeadcount) && e.totalHeadcount > 0) {
         const applied2 = appliedHeadcount ?? 0;
-        const shortfall = e.totalHeadcount - applied2;
+        const shortfall = e.totalHeadcount - applied2 - declinedHeadcount;
         if (shortfall > 0) {
           list.push({ ...e, appliedHeadcount: applied2, shortfall });
           count += shortfall;
         }
-      } else if (appliedHeadcount === undefined) {
-        list.push({ ...e, appliedHeadcount: 0, shortfall: 1 });
-        count += 1;
+      } else {
+        if (declinedHeadcount > 0) continue;
+        if (appliedHeadcount === undefined) {
+          list.push({ ...e, appliedHeadcount: 0, shortfall: 1 });
+          count += 1;
+        }
       }
     }
     return { list, count };
   }
 
-  const lunch = build(appliedLunchMap);
-  const dinner = build(appliedDinnerMap);
+  function buildDeclined(declinedMap) {
+    const list = [];
+    let count = 0;
+    for (const e of employees) {
+      const n = declinedMap.get(e.employeeId);
+      if (n) {
+        list.push({ ...e, declinedHeadcount: n });
+        count += n;
+      }
+    }
+    return { list, count };
+  }
+
+  const lunch = build(appliedLunchMap, declinedLunchMap);
+  const dinner = build(appliedDinnerMap, declinedDinnerMap);
+  const declinedLunch = buildDeclined(declinedLunchMap);
+  const declinedDinner = buildDeclined(declinedDinnerMap);
   return {
     totalEmployees: employees.length,
     pendingLunch: lunch.list,
     pendingDinner: dinner.list,
     pendingLunchCount: lunch.count,
     pendingDinnerCount: dinner.count,
+    declinedLunch: declinedLunch.list,
+    declinedDinner: declinedDinner.list,
+    declinedLunchCount: declinedLunch.count,
+    declinedDinnerCount: declinedDinner.count,
   };
 }
 
@@ -164,6 +200,10 @@ router.put("/reservations/override", async (req, res) => {
     const g = parseInt(guestCount, 10);
     if (Number.isInteger(g) && g >= 0) set.guestCount = g;
     if (status === "cancelled" && !Number.isInteger(g)) set.guestCount = 0;
+    // 개인 직원을 운영자가 강제로 "신청" 처리하면, 그 사람이 이전에 등록해둔 "안 먹어요" 표시와
+    // 앞뒤가 안 맞으므로 함께 해제합니다. 도급(단체) 계정은 신청 인원과 안 먹는 인원이 별개 숫자로
+    // 동시에 존재할 수 있으므로 건드리지 않습니다.
+    if (status === "applied" && emp.employeeType !== "contractor") set.declinedHeadcount = 0;
 
     const updated = await Reservation.findOneAndUpdate(
       { employeeId, date, mealType },
@@ -232,6 +272,10 @@ router.get("/summary/daily", async (req, res) => {
     pendingDinnerCount: pending.pendingDinnerCount,
     pendingLunch: pending.pendingLunch,
     pendingDinner: pending.pendingDinner,
+    declinedLunchCount: pending.declinedLunchCount,
+    declinedDinnerCount: pending.declinedDinnerCount,
+    declinedLunch: pending.declinedLunch,
+    declinedDinner: pending.declinedDinner,
     lunch,
     dinner,
   });
@@ -244,12 +288,22 @@ router.get("/summary/monthly", async (req, res) => {
   const [year, mon] = month.split("-").map(Number);
   const dates = getMonthDates(year, mon);
   const rows = scope.length ? await Reservation.find({ date: { $in: dates }, status: "applied", department: { $in: scope } }).lean() : [];
+  const declinedRows = scope.length
+    ? await Reservation.find({ date: { $in: dates }, declinedHeadcount: { $gt: 0 }, department: { $in: scope } }).lean()
+    : [];
 
   const byDate = {};
-  for (const d of dates) byDate[d] = { date: d, lunchCount: 0, dinnerCount: 0 };
+  for (const d of dates) byDate[d] = { date: d, lunchCount: 0, dinnerCount: 0, declinedLunchCount: 0, declinedDinnerCount: 0 };
   for (const r of rows) {
     const n = (r.headcount ?? 1) + (r.guestCount ?? 0);
     byDate[r.date][r.mealType === "lunch" ? "lunchCount" : "dinnerCount"] += n;
+  }
+  let declinedTotalLunch = 0;
+  let declinedTotalDinner = 0;
+  for (const r of declinedRows) {
+    byDate[r.date][r.mealType === "lunch" ? "declinedLunchCount" : "declinedDinnerCount"] += r.declinedHeadcount;
+    if (r.mealType === "lunch") declinedTotalLunch += r.declinedHeadcount;
+    else declinedTotalDinner += r.declinedHeadcount;
   }
   const customHolidays = await Holiday.find({ date: { $in: dates } }).lean();
   const customHolidayMap = new Map(customHolidays.map((h) => [h.date, h.label || ""]));
@@ -277,6 +331,8 @@ router.get("/summary/monthly", async (req, res) => {
     individualTotalDinner: dinnerSplit.individual,
     contractorTotalDinner: dinnerSplit.contractor,
     guestTotalDinner: dinnerSplit.guest,
+    declinedTotalLunch,
+    declinedTotalDinner,
   });
 });
 
@@ -331,6 +387,37 @@ router.get("/export/daily", async (req, res) => {
       date: "합계",
       mealType: `중식 ${lunchEmpCount + lunchGuestCount}명(직원 ${lunchEmpCount}명 + 내방객 ${lunchGuestCount}명) / 석식 ${dinnerEmpCount + dinnerGuestCount}명(직원 ${dinnerEmpCount}명 + 내방객 ${dinnerGuestCount}명)`,
     });
+
+    // "안 먹어요" 명단 시트
+    const declinedRows = scope.length
+      ? await Reservation.find({ date, declinedHeadcount: { $gt: 0 }, department: { $in: scope } })
+          .sort({ mealType: 1, department: 1, employeeName: 1 })
+          .lean()
+      : [];
+    const declinedWs = wb.addWorksheet("안 먹어요");
+    declinedWs.columns = [
+      { header: "날짜", key: "date", width: 12 },
+      { header: "구분", key: "mealType", width: 10 },
+      { header: "사번", key: "employeeId", width: 12 },
+      { header: "이름", key: "employeeName", width: 14 },
+      { header: "부서", key: "department", width: 18 },
+      { header: "안 먹는 인원수", key: "declinedHeadcount", width: 14 },
+    ];
+    declinedWs.getRow(1).font = { bold: true };
+    declinedRows.forEach((r) => {
+      declinedWs.addRow({
+        date: r.date,
+        mealType: r.mealType === "lunch" ? "중식" : "석식",
+        employeeId: r.employeeId,
+        employeeName: r.employeeName,
+        department: r.department,
+        declinedHeadcount: r.declinedHeadcount,
+      });
+    });
+    const declinedLunchTotal = declinedRows.filter((r) => r.mealType === "lunch").reduce((s, r) => s + r.declinedHeadcount, 0);
+    const declinedDinnerTotal = declinedRows.filter((r) => r.mealType === "dinner").reduce((s, r) => s + r.declinedHeadcount, 0);
+    declinedWs.addRow({});
+    declinedWs.addRow({ date: "합계", mealType: `중식 안 먹어요 ${declinedLunchTotal}명 / 석식 안 먹어요 ${declinedDinnerTotal}명` });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=meal_${date}.xlsx`);
@@ -403,6 +490,37 @@ router.get("/export/monthly", async (req, res) => {
           guestCount: r.guestCount ?? 0,
         });
       });
+
+    // "안 먹어요" 명단 시트 (이번 달)
+    const declinedRows = scope.length
+      ? await Reservation.find({ date: { $in: dates }, declinedHeadcount: { $gt: 0 }, department: { $in: scope } })
+          .sort({ date: 1, mealType: 1, department: 1, employeeName: 1 })
+          .lean()
+      : [];
+    const declinedWs = wb.addWorksheet("안 먹어요");
+    declinedWs.columns = [
+      { header: "날짜", key: "date", width: 12 },
+      { header: "구분", key: "mealType", width: 10 },
+      { header: "사번", key: "employeeId", width: 12 },
+      { header: "이름", key: "employeeName", width: 14 },
+      { header: "부서", key: "department", width: 18 },
+      { header: "안 먹는 인원수", key: "declinedHeadcount", width: 14 },
+    ];
+    declinedWs.getRow(1).font = { bold: true };
+    declinedRows.forEach((r) => {
+      declinedWs.addRow({
+        date: r.date,
+        mealType: r.mealType === "lunch" ? "중식" : "석식",
+        employeeId: r.employeeId,
+        employeeName: r.employeeName,
+        department: r.department,
+        declinedHeadcount: r.declinedHeadcount,
+      });
+    });
+    const declinedLunchTotal = declinedRows.filter((r) => r.mealType === "lunch").reduce((s, r) => s + r.declinedHeadcount, 0);
+    const declinedDinnerTotal = declinedRows.filter((r) => r.mealType === "dinner").reduce((s, r) => s + r.declinedHeadcount, 0);
+    declinedWs.addRow({});
+    declinedWs.addRow({ date: "합계", mealType: `중식 안 먹어요 ${declinedLunchTotal}명 / 석식 안 먹어요 ${declinedDinnerTotal}명` });
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=meal_${month}.xlsx`);

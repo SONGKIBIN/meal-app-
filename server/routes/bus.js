@@ -1,5 +1,4 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const Settings = require("../models/Settings");
 const BusRoute = require("../models/BusRoute");
 const Vehicle = require("../models/Vehicle");
@@ -7,7 +6,7 @@ const BusRide = require("../models/BusRide");
 const BusDefaultRide = require("../models/BusDefaultRide");
 const Holiday = require("../models/Holiday");
 const { requireAuth, requireActiveEmployee } = require("../middleware/auth");
-const { getWeekDates, fixedHolidayLabel, isWeekendDate, todayKSTStr } = require("../utils/dateUtil");
+const { getWeekDates, fixedHolidayLabel, isWeekendDate } = require("../utils/dateUtil");
 const {
   TRIP_TYPES,
   AUTO_DEFAULT_TRIP_TYPES,
@@ -20,18 +19,14 @@ const { computeRiders } = require("../utils/busRiders");
 
 // 상호 배타적인 운행구분 그룹(예: 정시퇴근/연장퇴근) 중 하나를 신청하면, 같은 날짜의 나머지 그룹원은
 // 자동으로 취소 처리합니다(하루에 퇴근은 한 번뿐이므로).
-// session을 함께 넘기면(POST /ride에서 사용) 본인 신청 upsert와 같은 트랜잭션으로 묶여 원자적으로
-// 처리됩니다 - 그렇지 않으면 동시에 들어온 두 신청(정시퇴근/연장퇴근)이 서로를 취소해버려 둘 다
-// 취소된 상태로 남을 수 있습니다.
-async function cancelMutuallyExclusiveSiblings(employeeId, date, tripType, session) {
+async function cancelMutuallyExclusiveSiblings(employeeId, date, tripType) {
   const group = MUTUALLY_EXCLUSIVE_TRIP_GROUPS.find((g) => g.includes(tripType));
   if (!group) return;
   const siblings = group.filter((t) => t !== tripType);
   if (!siblings.length) return;
   await BusRide.updateMany(
     { employeeId, date, tripType: { $in: siblings }, status: "applied" },
-    { $set: { status: "cancelled", headcount: 0 } },
-    session ? { session } : undefined
+    { $set: { status: "cancelled", headcount: 0 } }
   );
 }
 
@@ -168,7 +163,7 @@ router.get("/week", async (req, res) => {
     if (!visible) return res.status(403).json({ error: "통근버스 기능이 아직 공개되지 않았습니다." });
 
     const anchor = req.query.date && DATE_RE.test(req.query.date) ? req.query.date : undefined;
-    const week = getWeekDates(anchor || todayKSTStr());
+    const week = getWeekDates(anchor || new Date().toISOString().slice(0, 10));
 
     const vehicles = await Vehicle.find({ active: true }).populate("routeId").sort({ name: 1 }).lean();
     const vehicleList = vehicles
@@ -358,36 +353,27 @@ router.post("/ride", async (req, res) => {
       }
     }
 
-    // 본인 신청 upsert와 상호 배타 그룹의 취소 처리를 한 트랜잭션으로 묶어, 동시에 들어온 반대쪽
-    // 신청(정시퇴근/연장퇴근)이 서로를 취소해 둘 다 취소된 상태로 남는 경합을 방지합니다.
-    const session = await mongoose.startSession();
-    try {
-      await session.withTransaction(async () => {
-        await BusRide.findOneAndUpdate(
-          { employeeId: req.user.employeeId, date, tripType },
-          {
-            $set: {
-              status: "applied",
-              employeeName: req.user.name,
-              department: req.user.department,
-              vehicleId: vehicle._id,
-              routeId: vehicle.routeId._id,
-              routeName: vehicle.routeId.name,
-              vehicleName: vehicle.name,
-              stop: stopText,
-              headcount,
-            },
-          },
-          { upsert: true, new: true, session }
-        );
+    await BusRide.findOneAndUpdate(
+      { employeeId: req.user.employeeId, date, tripType },
+      {
+        $set: {
+          status: "applied",
+          employeeName: req.user.name,
+          department: req.user.department,
+          vehicleId: vehicle._id,
+          routeId: vehicle.routeId._id,
+          routeName: vehicle.routeId.name,
+          vehicleName: vehicle.name,
+          stop: stopText,
+          headcount,
+        },
+      },
+      { upsert: true, new: true }
+    );
 
-        // 정시퇴근/연장퇴근처럼 하루에 하나만 탈 수 있는 그룹이라면, 같은 날짜의 나머지 쪽은 자동으로
-        // 취소 처리합니다(퇴근은 한 번뿐이므로).
-        await cancelMutuallyExclusiveSiblings(req.user.employeeId, date, tripType, session);
-      });
-    } finally {
-      await session.endSession();
-    }
+    // 정시퇴근/연장퇴근처럼 하루에 하나만 탈 수 있는 그룹이라면, 같은 날짜의 나머지 쪽은 자동으로
+    // 취소 처리합니다(퇴근은 한 번뿐이므로).
+    await cancelMutuallyExclusiveSiblings(req.user.employeeId, date, tripType);
 
     res.json({ ok: true });
   } catch (err) {

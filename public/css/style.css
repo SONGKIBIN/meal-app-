@@ -173,10 +173,15 @@ main.container {
 .meal-row button { width: 100%; }
 .meal-row button.applied { background: var(--success); }
 .meal-row button.applied:hover { background: #15803d; }
+.meal-row button.declined { background: #6b7280; }
+.meal-row button.declined:hover { background: #4b5563; }
 .meal-row.headcount-row input[type=number] { width: 100%; text-align: center; }
+.meal-row.decline-headcount-row input[type=number] { width: 100%; text-align: center; }
+.meal-row.decline-headcount-row button { background: #6b7280; }
+.meal-row.decline-headcount-row button:hover { background: #4b5563; }
 
 /* 주말(토/일)·공휴일 표시: 날짜/요일을 빨간색으로, 신청 전 버튼도 빨간색으로 보여줍니다. 신청완료(초록)와
-   마감으로 비활성화된 버튼(회색)은 그대로 유지됩니다. */
+   안 먹어요(회색), 마감으로 비활성화된 버튼(회색)은 그대로 유지됩니다. */
 .day-cell.weekend .date-label,
 .day-cell.holiday .date-label,
 .day-cell.weekend .weekday-label,
@@ -189,12 +194,12 @@ main.container {
   font-weight: 700;
   margin-top: 2px;
 }
-.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(:disabled),
-.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(:disabled) {
+.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(.declined):not(:disabled),
+.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(.declined):not(:disabled) {
   background: var(--danger);
 }
-.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(:disabled):hover,
-.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(:disabled):hover {
+.day-cell.weekend .meal-row:not(.guest-row) button:not(.applied):not(.declined):not(:disabled):hover,
+.day-cell.holiday .meal-row:not(.guest-row) button:not(.applied):not(.declined):not(:disabled):hover {
   background: #b91c1c;
 }
 

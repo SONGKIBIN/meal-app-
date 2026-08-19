@@ -65,21 +65,11 @@ function requireMasterAdmin(req, res, next) {
 }
 
 // 통근버스 관리 권한(마스터 관리자 또는 master가 busAdmin 권한을 부여한 직원)이 있는지 확인합니다.
-// busAdmin 권한도 master가 나중에 회수할 수 있으므로, attachVehicleScope/requireBusDriver와 마찬가지로
-// 매 요청마다 DB에서 다시 확인해 권한 회수가 즉시(재로그인 없이도) 반영되도록 합니다.
-async function requireBusAdmin(req, res, next) {
-  try {
-    if (!req.user) return res.status(403).json({ error: "통근 차량 관리 관리자만 사용할 수 있습니다.", code: "NOT_BUS_ADMIN" });
-    if (req.user.isMasterAdmin) return next();
-    const emp = await Employee.findOne({ employeeId: req.user.employeeId }).lean();
-    if (!emp || !emp.active || !emp.busAdmin) {
-      return res.status(403).json({ error: "통근 차량 관리 관리자만 사용할 수 있습니다.", code: "NOT_BUS_ADMIN" });
-    }
-    next();
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "서버 오류가 발생했습니다." });
+function requireBusAdmin(req, res, next) {
+  if (!req.user || (!req.user.isMasterAdmin && !req.user.busAdmin)) {
+    return res.status(403).json({ error: "통근 차량 관리 관리자만 사용할 수 있습니다.", code: "NOT_BUS_ADMIN" });
   }
+  next();
 }
 
 // 통근버스 기사 권한(마스터 관리자 또는 master가 busDriver 권한을 부여한 직원)이 있는지 확인합니다.
